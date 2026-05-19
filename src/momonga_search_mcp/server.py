@@ -8,6 +8,9 @@ import logging
 import sys
 from typing import Any, TextIO
 
+from dotenv import load_dotenv
+
+from momonga_search_mcp.api import MomongaApiClient
 from momonga_search_mcp.config import Config, ConfigError
 from momonga_search_mcp.logging import configure_logging
 
@@ -20,10 +23,17 @@ logger = logging.getLogger(__name__)
 
 
 class StdioMCPServer:
-    def __init__(self, config: Config, input_stream: TextIO | None = None, output_stream: TextIO | None = None) -> None:
+    def __init__(
+        self,
+        config: Config,
+        input_stream: TextIO | None = None,
+        output_stream: TextIO | None = None,
+        api_client: MomongaApiClient | None = None,
+    ) -> None:
         self.config = config
         self.input_stream = sys.stdin if input_stream is None else input_stream
         self.output_stream = sys.stdout if output_stream is None else output_stream
+        self.api_client = MomongaApiClient(config) if api_client is None else api_client
 
     def serve_forever(self) -> None:
         logger.info(
@@ -115,6 +125,7 @@ def _error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
 
 
 def main() -> int:
+    load_dotenv()
     try:
         config = Config.from_env()
     except ConfigError as exc:

@@ -15,6 +15,7 @@ DEFAULT_MAX_SECTIONS_PER_CONTENT_CALL = 3
 DEFAULT_MAX_CHARACTERS_PER_CONTENT_CALL = 30_000
 DEFAULT_MAX_PAGE_IMAGES_PER_CALL = 3
 DEFAULT_MAX_ORIGINAL_FILES_PER_CALL = 1
+DEFAULT_API_TIMEOUT_SECONDS = 30
 DEFAULT_LOG_LEVEL = "INFO"
 
 
@@ -33,6 +34,7 @@ class Config:
     max_characters_per_content_call: int = DEFAULT_MAX_CHARACTERS_PER_CONTENT_CALL
     max_page_images_per_call: int = DEFAULT_MAX_PAGE_IMAGES_PER_CALL
     max_original_files_per_call: int = DEFAULT_MAX_ORIGINAL_FILES_PER_CALL
+    api_timeout_seconds: int = DEFAULT_API_TIMEOUT_SECONDS
     log_level: str = DEFAULT_LOG_LEVEL
 
     @classmethod
@@ -75,6 +77,11 @@ class Config:
                 values,
                 "MOMONGA_MCP_MAX_ORIGINAL_FILES_PER_CALL",
                 DEFAULT_MAX_ORIGINAL_FILES_PER_CALL,
+            ),
+            api_timeout_seconds=_get_int(
+                values,
+                "MOMONGA_MCP_API_TIMEOUT_SECONDS",
+                DEFAULT_API_TIMEOUT_SECONDS,
             ),
             log_level=_get_str(values, "MOMONGA_MCP_LOG_LEVEL", DEFAULT_LOG_LEVEL).upper(),
         )
