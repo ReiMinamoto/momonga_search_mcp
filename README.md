@@ -13,7 +13,7 @@ Momonga Search APIをMCP経由で使うためのstdioサーバーです。
 - `skill://index.json` と用途別Skill Resourceを提供します。
 - 本文、page image、original fileの取得はcredit、文字数、section数、件数の上限で制御します。
 - 画像・元ファイル・大量取得は明示フラグを要求します。
-- 本文・画像・元ファイルはローカルに保存し、再取得時はcacheを優先します。
+- 実質不変な取得済みresourceだけをローカルに保存し、再取得時はcacheを優先します。
 - ローカル保存された情報は `momonga://...` URIで参照できるようにします。
 
 主なtool:
@@ -67,6 +67,33 @@ Prompts:
 ```sh
 export MOMONGA_SEARCH_API_KEY=ms_live_xxx
 ```
+
+## キャッシュ方針
+
+cache可否の基準は、取得対象が不変または実質不変かどうかです。
+
+キャッシュするもの:
+
+
+| 対象 | 理由 |
+| --- | --- |
+| document toc | `document_id` に紐づくsection構造で、content ready後は実質不変として扱えるため。 |
+| document section本文 | `document_id + section_id` で固定される本文で、同じsectionの再取得を避けるべきため。 |
+| page image実体 | `document_id + page_number` に紐づく文書ページの実体で、実質不変として扱えるため。 |
+| original file実体 | `document_id + original_id` に紐づく元ファイル実体で、実質不変として扱えるため。 |
+
+
+キャッシュしないもの:
+
+
+| 対象 | 理由 |
+| --- | --- |
+| issuer search結果 | issuer情報、上場状態、検索結果の並びが変わりうるため。 |
+| document list結果 | 新規開示、訂正、availability、並びが変わりうるため。 |
+| document metadata / status | `content_status`、`content_available`、`image_available` などが変わりうるため。 |
+| document search結果 | 検索index、ranking、hit内容が更新されうるため。 |
+| news list/search結果 | 最新性そのものが価値で、古い結果を返すリスクが高いため。 |
+| page image / original list結果 | 取得可否や一覧内容を都度APIで確認すべきため。 |
 
 ## ローカル実行
 
