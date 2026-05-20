@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import json
 from typing import Any
 
 from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
 from momonga_search_mcp.cache import CacheManager
+from momonga_search_mcp.tools.response import (
+    get_document_content_response,
+    get_document_toc_response,
+    success_response,
+    tool_json_result,
+)
 
 
 def call_tool(
@@ -17,22 +22,14 @@ def call_tool(
     cache_manager_getter: Callable[[], CacheManager] | None = None,
 ) -> dict[str, Any]:
     if not isinstance(params, dict):
-        return tool_json_result(
-            {"ok": False, "error": {"code": "invalid_request", "message": "tools/call params must be an object"}},
-            is_error=True,
-        )
+        return _validation_error("tools/call params must be an object")
 
     name = params.get("name")
     arguments = params.get("arguments", {})
     if not isinstance(name, str):
-        return tool_json_result(
-            {"ok": False, "error": {"code": "invalid_request", "message": "tool name is required"}}, is_error=True
-        )
+        return _validation_error("tool name is required")
     if not isinstance(arguments, dict):
-        return tool_json_result(
-            {"ok": False, "error": {"code": "invalid_request", "message": "tool arguments must be an object"}},
-            is_error=True,
-        )
+        return _validation_error("tool arguments must be an object")
 
     try:
         if name == "search_issuers":
@@ -69,6 +66,8 @@ def call_tool(
                     ("security_codes", "macro_tags", "timeline_since", "timeline_until", "limit", "cursor"),
                 ),
             )
+        elif name == "get_document_content":
+            return _call_get_document_content(api_client, arguments, cache_manager_getter)
         elif name == "search_documents":
             payload = api_client.post(
                 "/search/documents",
@@ -96,19 +95,37 @@ def call_tool(
                     optional=("security_codes", "macro_tags", "timeline_since", "timeline_until", "match_type", "top_k"),
                 ),
             )
-        elif name == "get_document_content":
-            return _call_get_document_content(api_client, arguments, cache_manager_getter)
         else:
-            return tool_json_result(
-                {"ok": False, "error": {"code": "unknown_tool", "message": f"Unknown tool: {name}"}},
-                is_error=True,
+            return _tool_error(
+                "unknown_tool",
+                f"Unknown tool: {name}",
+                next_action="Use one of the tool names returned by tools/list.",
             )
     except ValueError as exc:
-        return tool_json_result({"ok": False, "error": {"code": "invalid_request", "message": str(exc)}}, is_error=True)
+        return _validation_error(str(exc))
     except MomongaApiError as exc:
         return tool_json_result(api_error_response(exc), is_error=True)
 
-    return tool_json_result({"ok": True, **payload})
+    return tool_json_result(success_response(name, payload))
+
+
+def _validation_error(message: str) -> dict[str, Any]:
+    return _tool_error("invalid_request", message, next_action="Fix the tool input and retry the request.")
+
+
+def _tool_error(code: str, message: str, *, next_action: str) -> dict[str, Any]:
+    return tool_json_result(
+        {
+            "ok": False,
+            "error": {
+                "code": code,
+                "status": None,
+                "message": message,
+                "next_action": next_action,
+            },
+        },
+        is_error=True,
+    )
 
 
 def _call_get_document_toc(
@@ -124,11 +141,11 @@ def _call_get_document_toc(
     cached_toc = cache_manager.get_document_toc(document_id)
     if cached_toc is not None:
         payload = cache_manager.read_json(cached_toc)
-        return tool_json_result({"ok": True, **payload, "resource_uri": cached_toc.resource_uri, "cache_hit": True})
+        return tool_json_result(get_document_toc_response(payload, cached_toc, cache_hit=True))
 
     payload = api_client.get(f"/documents/{document_id}/toc")
     resource = cache_manager.store_document_toc(document_id, payload)
-    return tool_json_result({"ok": True, **payload, "resource_uri": resource.resource_uri, "cache_hit": False})
+    return tool_json_result(get_document_toc_response(payload, resource, cache_hit=False))
 
 
 def _call_get_document_content(
@@ -154,33 +171,39 @@ def _call_get_document_content(
         if all(resource is not None for resource in cached_resources):
             resources = [resource for resource in cached_resources if resource is not None]
             sections = [cache_manager.read_json(resource) for resource in resources]
-            return tool_json_result({"ok": True, "document_id": document_id, "content_sections": sections, "cache_hit": True})
+            return tool_json_result(
+                get_document_content_response(
+                    document_id,
+                    list(zip(sections, [resource.resource_uri for resource in resources], strict=True)),
+                    cache_hit=True,
+                    cached_sections=True,
+                    return_content=return_content,
+                )
+            )
 
     params = {"sections": section_ids} if section_ids else None
     payload = api_client.get(f"/documents/{document_id}/content", params)
     content_sections = payload.get("content_sections")
+    section_resources = []
     if isinstance(content_sections, list):
         for section in content_sections:
             if not isinstance(section, dict):
                 continue
 
             section_id = _required_string(section, "section_id")
-            cache_manager.store_document_section(document_id, section_id, section)
-    return tool_json_result({"ok": True, **payload, "cache_hit": False})
+            section_resources.append(
+                (section, cache_manager.store_document_section(document_id, section_id, section).resource_uri)
+            )
 
-
-def tool_json_result(payload: dict[str, Any], *, is_error: bool = False) -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "content": [
-            {
-                "type": "text",
-                "text": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-            }
-        ]
-    }
-    if is_error:
-        result["isError"] = True
-    return result
+    return tool_json_result(
+        get_document_content_response(
+            document_id,
+            section_resources,
+            cache_hit=False,
+            cached_sections=False,
+            return_content=return_content,
+        )
+    )
 
 
 def _select_arguments(arguments: dict[str, Any], allowed_names: tuple[str, ...]) -> dict[str, Any]:

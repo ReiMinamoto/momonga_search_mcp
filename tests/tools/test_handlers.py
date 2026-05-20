@@ -30,6 +30,36 @@ class ToolHandlerTests(unittest.TestCase):
             call_tool(api_client, {"name": name, "arguments": arguments})
             self.assertEqual(api_client.calls[-1], ("GET", expected_path, expected_params))
 
+    def test_call_tool_returns_trimmed_success_response(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {
+            "document_id": "doc_123",
+            "document_family": "edinet_filing",
+            "title": "Report",
+            "document_type": "yuho",
+            "issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
+            "timeline_at": "2026-05-01T00:00:00Z",
+            "reference_url": "https://example.com/report.pdf",
+            "internal_extra": "dropped",
+        }
+
+        response = call_tool(api_client, {"name": "get_document_metadata", "arguments": {"document_id": "doc_123"}})
+
+        payload = json.loads(response["content"][0]["text"])
+        self.assertEqual(
+            payload,
+            {
+                "ok": True,
+                "document_id": "doc_123",
+                "document_family": "edinet_filing",
+                "title": "Report",
+                "document_type": "yuho",
+                "issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
+                "timeline_at": "2026-05-01T00:00:00Z",
+                "reference_url": "https://example.com/report.pdf",
+            },
+        )
+
     def test_call_tool_routes_credit_search_and_news_tools(self) -> None:
         api_client = FakeApiClient()
         calls = [
@@ -61,7 +91,7 @@ class ToolHandlerTests(unittest.TestCase):
 
     def test_get_document_toc_stores_response(self) -> None:
         api_client = FakeApiClient()
-        api_client.response = {"document_id": "doc_123", "toc": [{"section_id": "sec_1"}]}
+        api_client.response = {"document_id": "doc_123", "title": "Report", "toc": [{"section_id": "sec_1"}]}
         with TemporaryDirectory() as temp_dir:
             cache_manager = CacheManager(Path(temp_dir))
 
@@ -77,6 +107,7 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(api_client.calls, [("GET", "/documents/doc_123/toc", None)])
         self.assertFalse(payload["cache_hit"])
         self.assertEqual(payload["resource_uri"], "momonga://documents/doc_123/toc")
+        self.assertNotIn("title", payload)
         self.assertIsNotNone(cached_toc)
 
     def test_get_document_toc_returns_cache_hit_without_api_call(self) -> None:
@@ -104,9 +135,10 @@ class ToolHandlerTests(unittest.TestCase):
             "content_sections": [
                 {
                     "section_id": "sec_1",
-                    "heading_path": ["Risk"],
+                    "section_title": "Risk",
                     "character_count": 4,
                     "content": "body",
+                    "internal_extra": "dropped",
                 }
             ],
         }
@@ -127,9 +159,13 @@ class ToolHandlerTests(unittest.TestCase):
 
         self.assertEqual(api_client.calls, [("GET", "/documents/doc_123/content", {"sections": ["sec_1"]})])
         self.assertFalse(payload["cache_hit"])
-        self.assertEqual(payload["content"], "full")
-        self.assertEqual(payload["content_sections"][0]["heading_path"], ["Risk"])
-        self.assertEqual(payload["content_sections"][0]["content"], "body")
+        self.assertNotIn("content", payload)
+        self.assertEqual(payload["content_sections"][0]["section_title"], "Risk")
+        self.assertEqual(payload["content_sections"][0]["character_count"], 4)
+        self.assertIn("resource_uri", payload["content_sections"][0])
+        self.assertFalse(payload["content_sections"][0]["cached"])
+        self.assertNotIn("internal_extra", payload["content_sections"][0])
+        self.assertNotIn("content", payload["content_sections"][0])
         self.assertIsNotNone(cached_section)
 
     def test_get_document_content_returns_cache_hit_without_api_call(self) -> None:
@@ -139,7 +175,13 @@ class ToolHandlerTests(unittest.TestCase):
             cache_manager.store_document_section(
                 "doc_123",
                 "sec_1",
-                {"section_id": "sec_1", "heading_path": ["Risk"], "character_count": 11, "content": "cached body"},
+                {
+                    "section_id": "sec_1",
+                    "section_title": "Risk",
+                    "character_count": 11,
+                    "content": "cached body",
+                    "internal_extra": "dropped",
+                },
             )
 
             response = call_tool(
@@ -154,15 +196,22 @@ class ToolHandlerTests(unittest.TestCase):
         payload = json.loads(response["content"][0]["text"])
         self.assertEqual(api_client.calls, [])
         self.assertTrue(payload["cache_hit"])
-        self.assertEqual(payload["content_sections"][0]["heading_path"], ["Risk"])
-        self.assertEqual(payload["content_sections"][0]["content"], "cached body")
+        self.assertEqual(payload["content_sections"][0]["section_title"], "Risk")
+        self.assertEqual(payload["content_sections"][0]["character_count"], 11)
+        self.assertTrue(payload["content_sections"][0]["cached"])
+        self.assertNotIn("internal_extra", payload["content_sections"][0])
+        self.assertNotIn("content", payload["content_sections"][0])
 
     def test_cache_backed_tools_require_cache_manager(self) -> None:
         for tool_name in ("get_document_toc", "get_document_content"):
             response = call_tool(FakeApiClient(), {"name": tool_name, "arguments": {"document_id": "doc_123"}})
+            payload = json.loads(response["content"][0]["text"])
 
             self.assertTrue(response["isError"])
-            self.assertIn("cache manager is required", response["content"][0]["text"])
+            self.assertEqual(payload["error"]["code"], "invalid_request")
+            self.assertIsNone(payload["error"]["status"])
+            self.assertIn("cache manager is required", payload["error"]["message"])
+            self.assertEqual(payload["error"]["next_action"], "Fix the tool input and retry the request.")
 
     def test_call_tool_returns_model_facing_api_error(self) -> None:
         api_client = FakeApiClient()
@@ -181,9 +230,39 @@ class ToolHandlerTests(unittest.TestCase):
 
     def test_call_tool_validates_required_arguments(self) -> None:
         response = call_tool(FakeApiClient(), {"name": "get_document_metadata", "arguments": {}})
+        payload = json.loads(response["content"][0]["text"])
 
         self.assertTrue(response["isError"])
-        self.assertIn("document_id is required", response["content"][0]["text"])
+        self.assertEqual(
+            payload,
+            {
+                "ok": False,
+                "error": {
+                    "code": "invalid_request",
+                    "status": None,
+                    "message": "document_id is required",
+                    "next_action": "Fix the tool input and retry the request.",
+                },
+            },
+        )
+
+    def test_call_tool_returns_model_facing_unknown_tool_error(self) -> None:
+        response = call_tool(FakeApiClient(), {"name": "missing_tool", "arguments": {}})
+        payload = json.loads(response["content"][0]["text"])
+
+        self.assertTrue(response["isError"])
+        self.assertEqual(
+            payload,
+            {
+                "ok": False,
+                "error": {
+                    "code": "unknown_tool",
+                    "status": None,
+                    "message": "Unknown tool: missing_tool",
+                    "next_action": "Use one of the tool names returned by tools/list.",
+                },
+            },
+        )
 
 
 if __name__ == "__main__":
