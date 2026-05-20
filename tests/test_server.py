@@ -47,6 +47,43 @@ class ServerTests(unittest.TestCase):
         assert response is not None
         self.assertEqual(response["error"]["code"], -32601)
 
+    def test_tools_list_includes_document_and_news_tools(self) -> None:
+        response = self.server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+        self.assertIsNotNone(response)
+        assert response is not None
+        tool_names = {tool["name"] for tool in response["result"]["tools"]}
+        self.assertEqual(
+            tool_names,
+            {
+                "search_issuers",
+                "list_documents",
+                "get_document_metadata",
+                "get_document_toc",
+                "list_document_page_images",
+                "list_document_originals",
+                "list_news",
+                "search_documents",
+                "search_news",
+                "get_document_content",
+            },
+        )
+
+    def test_tools_call_validates_required_arguments(self) -> None:
+        response = self.server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "get_document_metadata", "arguments": {}},
+            }
+        )
+
+        self.assertIsNotNone(response)
+        assert response is not None
+        self.assertTrue(response["result"]["isError"])
+        self.assertIn("document_id is required", response["result"]["content"][0]["text"])
+
 
 if __name__ == "__main__":
     unittest.main()

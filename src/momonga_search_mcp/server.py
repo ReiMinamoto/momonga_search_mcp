@@ -11,8 +11,11 @@ from typing import Any, TextIO
 from dotenv import load_dotenv
 
 from momonga_search_mcp.api import MomongaApiClient
+from momonga_search_mcp.cache import CacheManager
 from momonga_search_mcp.config import Config, ConfigError
 from momonga_search_mcp.logging import configure_logging
+from momonga_search_mcp.tools.definitions import tool_definitions
+from momonga_search_mcp.tools.handlers import call_tool
 
 JSONRPC_VERSION = "2.0"
 MCP_PROTOCOL_VERSION = "2024-11-05"
@@ -29,11 +32,13 @@ class StdioMCPServer:
         input_stream: TextIO | None = None,
         output_stream: TextIO | None = None,
         api_client: MomongaApiClient | None = None,
+        cache_manager: CacheManager | None = None,
     ) -> None:
         self.config = config
         self.input_stream = sys.stdin if input_stream is None else input_stream
         self.output_stream = sys.stdout if output_stream is None else output_stream
         self.api_client = MomongaApiClient(config) if api_client is None else api_client
+        self.cache_manager = cache_manager
 
     def serve_forever(self) -> None:
         logger.info(
@@ -82,7 +87,13 @@ class StdioMCPServer:
         if method == "ping":
             return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {}}
         if method == "tools/list":
-            return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"tools": []}}
+            return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"tools": tool_definitions()}}
+        if method == "tools/call":
+            return {
+                "jsonrpc": JSONRPC_VERSION,
+                "id": request_id,
+                "result": call_tool(self.api_client, message.get("params"), cache_manager_getter=self._cache_manager),
+            }
         if method == "resources/list":
             return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"resources": []}}
         if method == "prompts/list":
@@ -112,6 +123,12 @@ class StdioMCPServer:
                 "Use document tools and news tools separately, and respect MCP-side credit and retrieval limits."
             ),
         }
+
+    def _cache_manager(self) -> CacheManager:
+        if self.cache_manager is None:
+            self.cache_manager = CacheManager(self.config.cache_dir)
+        return self.cache_manager
+
 
 def _error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
     return {

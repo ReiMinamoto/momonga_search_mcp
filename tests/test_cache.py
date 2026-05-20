@@ -58,7 +58,9 @@ class CacheManagerTests(unittest.TestCase):
             self.assertEqual(resource.resource_uri, "momonga://documents/doc_123/toc")
             self.assertTrue(resource.path.exists())
             assert cached_toc is not None
-            self.assertEqual(cached_toc["toc"][0]["section_id"], "sec_1")
+            self.assertEqual(cached_toc.resource_uri, resource.resource_uri)
+            self.assertEqual(cached_toc.path, resource.path)
+            self.assertEqual(cache.read_json(cached_toc), {"toc": [{"section_id": "sec_1"}]})
 
     def test_stores_and_reads_document_section(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -78,7 +80,8 @@ class CacheManagerTests(unittest.TestCase):
             self.assertEqual(resource.resource_uri, "momonga://documents/doc_123/sections/sec_456")
             self.assertTrue(resource.path.exists())
             assert cached_section is not None
-            self.assertEqual(cached_section["content"], "Material cost increased.")
+            self.assertEqual(cached_section.resource_uri, resource.resource_uri)
+            self.assertEqual(cached_section.path, resource.path)
 
     def test_stores_page_image_and_original_file_under_cache_dir(self) -> None:
         with TemporaryDirectory() as temp_dir:

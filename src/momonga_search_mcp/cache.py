@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
@@ -59,11 +61,11 @@ class CacheManager:
             )
         return CachedResource(resource_uri=resource_uri, path=path)
 
-    def get_document_toc(self, document_id: str) -> dict[str, Any] | None:
+    def get_document_toc(self, document_id: str) -> CachedResource | None:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT toc_path
+                SELECT resource_uri, toc_path
                 FROM document_tocs
                 WHERE document_id = ?
                 """,
@@ -71,7 +73,7 @@ class CacheManager:
             ).fetchone()
         if row is None:
             return None
-        return self._read_json(self.cache_dir / row["toc_path"])
+        return CachedResource(resource_uri=row["resource_uri"], path=self.cache_dir / row["toc_path"])
 
     def store_document_section(
         self,
@@ -101,11 +103,11 @@ class CacheManager:
             )
         return CachedResource(resource_uri=resource_uri, path=path)
 
-    def get_document_section(self, document_id: str, section_id: str) -> dict[str, Any] | None:
+    def get_document_section(self, document_id: str, section_id: str) -> CachedResource | None:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT content_path
+                SELECT resource_uri, content_path
                 FROM document_sections
                 WHERE document_id = ? AND section_id = ?
                 """,
@@ -113,7 +115,7 @@ class CacheManager:
             ).fetchone()
         if row is None:
             return None
-        return self._read_json(self.cache_dir / row["content_path"])
+        return CachedResource(resource_uri=row["resource_uri"], path=self.cache_dir / row["content_path"])
 
     def store_page_image(
         self,
@@ -221,6 +223,9 @@ class CacheManager:
             return None
         return CachedResource(resource_uri=row["resource_uri"], path=self.cache_dir / row["file_path"])
 
+    def read_json(self, resource: CachedResource) -> dict[str, Any]:
+        return self._read_json(resource.path)
+
     def record_api_call(
         self,
         *,
@@ -238,10 +243,15 @@ class CacheManager:
                 (tool_name, endpoint, int(cache_hit), credits_used, _now_iso()),
             )
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _ensure_schema(self) -> None:
         with self._connect() as connection:
