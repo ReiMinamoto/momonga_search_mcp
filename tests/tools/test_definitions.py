@@ -7,11 +7,11 @@ from momonga_search_mcp.tools.definitions import tool_definitions
 
 class ToolDefinitionTests(unittest.TestCase):
     def test_tool_definitions_include_document_and_news_tools(self) -> None:
-        tool_names = {tool["name"] for tool in tool_definitions()}
+        tool_names = [tool["name"] for tool in tool_definitions()]
 
         self.assertEqual(
             tool_names,
-            {
+            [
                 "search_issuers",
                 "list_documents",
                 "get_document_metadata",
@@ -22,7 +22,7 @@ class ToolDefinitionTests(unittest.TestCase):
                 "get_document_content",
                 "search_documents",
                 "search_news",
-            },
+            ],
         )
 
     def test_list_tool_schemas_include_required_filter_alternatives(self) -> None:

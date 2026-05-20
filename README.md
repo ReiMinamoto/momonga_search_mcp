@@ -20,9 +20,8 @@ Momonga Search APIをMCP経由で使うためのstdioサーバーです。
 
 | 分類 | tool |
 | --- | --- |
-| issuer/document | `search_issuers`, `list_documents`, `get_document_metadata`, `search_documents`, `get_document_toc`, `get_document_content` |
-| news | `list_news`, `search_news` |
-| file | `list_document_page_images`, `get_document_page_image`, `list_document_originals`, `get_document_original` |
+| main | `search_issuers`, `list_documents`, `get_document_metadata`, `get_document_toc`, `list_document_page_images`, `list_document_originals`, `list_news`, `get_document_content`, `search_documents`, `search_news` |
+| file download | `get_document_page_image`, `get_document_original` |
 | skill helper | `find_skill`, `get_skill` |
 
 Skill Resource:

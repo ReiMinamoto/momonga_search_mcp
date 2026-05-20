@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from momonga_search_mcp.config import Config
@@ -52,10 +53,10 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        tool_names = {tool["name"] for tool in response["result"]["tools"]}
+        tool_names = [tool["name"] for tool in response["result"]["tools"]]
         self.assertEqual(
             tool_names,
-            {
+            [
                 "search_issuers",
                 "list_documents",
                 "get_document_metadata",
@@ -63,10 +64,10 @@ class ServerTests(unittest.TestCase):
                 "list_document_page_images",
                 "list_document_originals",
                 "list_news",
+                "get_document_content",
                 "search_documents",
                 "search_news",
-                "get_document_content",
-            },
+            ],
         )
 
     def test_tools_call_validates_required_arguments(self) -> None:
@@ -82,7 +83,11 @@ class ServerTests(unittest.TestCase):
         self.assertIsNotNone(response)
         assert response is not None
         self.assertTrue(response["result"]["isError"])
-        self.assertIn("document_id is required", response["result"]["content"][0]["text"])
+        payload = json.loads(response["result"]["content"][0]["text"])
+        self.assertEqual(payload["error"]["code"], "invalid_request")
+        self.assertIsNone(payload["error"]["status"])
+        self.assertEqual(payload["error"]["message"], "document_id is required")
+        self.assertEqual(payload["error"]["next_action"], "Fix the tool input and retry the request.")
 
 
 if __name__ == "__main__":

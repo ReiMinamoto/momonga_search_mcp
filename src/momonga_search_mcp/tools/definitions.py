@@ -129,6 +129,26 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
     },
+    "get_document_content": {
+        "description": "Retrieve document content. Only use after checking content_status and toc.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string"},
+                "section_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Section IDs from get_document_toc. Omit only when full document content is needed.",
+                },
+                "return_content": {
+                    "type": "boolean",
+                    "description": "Whether to include retrieved content in the tool response. Defaults to true.",
+                },
+            },
+            "required": ["document_id"],
+            "additionalProperties": False,
+        },
+    },
     "search_documents": {
         "description": "Search document content. Use short topic terms or evidence-focused questions.",
         "inputSchema": {
@@ -176,26 +196,6 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
                 "top_k": TOP_K_SCHEMA,
             },
             "required": ["query"],
-            "additionalProperties": False,
-        },
-    },
-    "get_document_content": {
-        "description": "Retrieve document content. Only use after checking content_status and toc.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "document_id": {"type": "string"},
-                "section_ids": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Section IDs from get_document_toc. Omit only when full document content is needed.",
-                },
-                "return_content": {
-                    "type": "boolean",
-                    "description": "Whether to include retrieved content in the tool response. Defaults to true.",
-                },
-            },
-            "required": ["document_id"],
             "additionalProperties": False,
         },
     },
