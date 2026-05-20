@@ -11,8 +11,9 @@ from momonga_search_mcp.config import Config
 
 
 class FakeResponse:
-    def __init__(self, body: bytes) -> None:
+    def __init__(self, body: bytes, headers: dict[str, str] | None = None) -> None:
         self.body = BytesIO(body)
+        self.headers = headers or {}
 
     def __enter__(self) -> FakeResponse:
         return self
@@ -34,7 +35,9 @@ class ApiClientTests(unittest.TestCase):
             captured["timeout"] = timeout
             return FakeResponse(b'{"ok":true}')
 
-        client = MomongaApiClient(Config(api_key="ms_test_xxx", base_url="https://example.test/v1", api_timeout_seconds=7), transport)
+        client = MomongaApiClient(
+            Config(api_key="ms_test_xxx", base_url="https://example.test/v1", api_timeout_seconds=7), transport
+        )
 
         result = client.get("/issuers/search", {"q": "abc", "empty": None})
 
@@ -75,6 +78,31 @@ class ApiClientTests(unittest.TestCase):
         self.assertEqual(result, {"results": []})
         self.assertEqual(captured["content_type"], "application/json")
         self.assertEqual(captured["data"], b'{"query":"\xe4\xbe\xa1\xe6\xa0\xbc\xe8\xbb\xa2\xe5\xab\x81","top_k":3}')
+
+    def test_get_binary_returns_bytes_and_response_headers(self) -> None:
+        captured: dict[str, object] = {}
+
+        def transport(request: Request, timeout: float) -> FakeResponse:
+            captured["accept"] = request.get_header("Accept")
+            captured["url"] = request.full_url
+            return FakeResponse(
+                b"%PDF",
+                {
+                    "Content-Type": "application/pdf",
+                    "Content-Disposition": 'attachment; filename="report.pdf"',
+                    "Content-Length": "4",
+                },
+            )
+
+        client = MomongaApiClient(Config(api_key="ms_test_xxx", base_url="https://example.test/v1"), transport)
+
+        result = client.get_binary("/documents/doc_1/originals/pdf")
+
+        self.assertEqual(captured["accept"], "*/*")
+        self.assertEqual(captured["url"], "https://example.test/v1/documents/doc_1/originals/pdf")
+        self.assertEqual(result.content, b"%PDF")
+        self.assertEqual(result.media_type, "application/pdf")
+        self.assertEqual(result.filename, "report.pdf")
 
     def test_maps_problem_details_error_and_retry_after_header(self) -> None:
         def transport(request: Request, timeout: float) -> FakeResponse:
@@ -155,9 +183,7 @@ class ApiClientTests(unittest.TestCase):
                 "code": "content_not_available",
                 "status": 409,
                 "message": "Content not available",
-                "next_action": (
-                    "Wait for retry_after_seconds before retrying this request."
-                ),
+                "next_action": ("Wait for retry_after_seconds before retrying this request."),
                 "detail": "Pending release.",
                 "retry_after_seconds": 3600,
                 "content_status": "pending_release",

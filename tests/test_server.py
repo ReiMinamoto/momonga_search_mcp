@@ -65,6 +65,8 @@ class ServerTests(unittest.TestCase):
                 "list_document_originals",
                 "list_news",
                 "get_document_content",
+                "get_document_original",
+                "get_document_page_image",
                 "search_documents",
                 "search_news",
             ],

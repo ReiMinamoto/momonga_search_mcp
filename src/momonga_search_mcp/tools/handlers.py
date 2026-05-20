@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import quote
 
 from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
-from momonga_search_mcp.cache import CacheManager
+from momonga_search_mcp.cache import CachedResource, CacheManager
 from momonga_search_mcp.config import Config
 from momonga_search_mcp.tools.definitions import CREDIT_TOOLS, ZERO_CREDIT_DOCUMENT_TOOLS
 from momonga_search_mcp.tools.response import (
@@ -24,6 +24,8 @@ CREDIT_COSTS = {
     "get_document_content": 8,
     "search_documents": 1,
     "search_news": 1,
+    "get_document_page_image": 1,
+    "get_document_original": 8,
 }
 
 
@@ -82,8 +84,8 @@ def call_tool(
             payload = api_client.get(f"/documents/{_quoted_document_id(arguments)}/originals")
         elif name == "list_news":
             params = _select_arguments(
-                    arguments,
-                    ("security_codes", "macro_tags", "timeline_since", "timeline_until", "limit", "cursor"),
+                arguments,
+                ("security_codes", "macro_tags", "timeline_since", "timeline_until", "limit", "cursor"),
             )
             payload, credits_used = _call_credit_api(
                 api_client.get,
@@ -133,6 +135,12 @@ def call_tool(
                 cache_manager_getter=cache_manager_getter,
                 session_id=session_id,
             )
+        elif name == "get_document_page_image":
+            return _call_get_document_page_image(
+                api_client, arguments, cache_manager_getter, config=config, session_id=session_id
+            )
+        elif name == "get_document_original":
+            return _call_get_document_original(api_client, arguments, cache_manager_getter, config=config, session_id=session_id)
         else:
             raise ValueError(f"Unhandled tool: {name}")
     except ValueError as exc:
@@ -264,6 +272,159 @@ def _call_get_document_content(
     return tool_json_result(response)
 
 
+def _call_get_document_page_image(
+    api_client: MomongaApiClient,
+    arguments: dict[str, Any],
+    cache_manager_getter: Callable[[], CacheManager] | None,
+    *,
+    config: Config,
+    session_id: str,
+) -> dict[str, Any]:
+    _require_download_flags(arguments)
+    document_id = _required_string(arguments, "document_id")
+    page_number = arguments["page_number"]
+    if type(page_number) is not int or page_number < 1:
+        raise ValueError("page_number must be greater than or equal to 1")
+    if cache_manager_getter is None:
+        raise ValueError("cache manager is required for get_document_page_image")
+
+    cache_manager = cache_manager_getter()
+    cached = cache_manager.get_page_image(document_id, page_number)
+    if cached is not None:
+        response = _download_response(
+            "get_document_page_image",
+            document_id=document_id,
+            resource_uri=cached.resource_uri,
+            file_path=cached.path,
+            credits_used=0,
+            cached=True,
+            page_number=page_number,
+            media_type="image/jpeg",
+        )
+        _add_session_credit_fields(response, cache_manager, config=config, session_id=session_id)
+        cache_manager.record_api_call(
+            tool_name="get_document_page_image",
+            endpoint=f"/documents/{_quote_path_component(document_id)}/pages/{page_number}/image",
+            cache_hit=True,
+            credits_used=0,
+        )
+        return tool_json_result(response)
+
+    endpoint = f"/documents/{_quote_path_component(document_id)}/pages/{page_number}/image"
+    binary_response, credits_used = _call_credit_binary_api(
+        api_client.get_binary,
+        endpoint,
+        tool_name="get_document_page_image",
+        config=config,
+        cache_manager_getter=cache_manager_getter,
+        session_id=session_id,
+    )
+    image_bytes = binary_response.content
+    resource = cache_manager.store_page_image(
+        document_id,
+        page_number,
+        image_bytes,
+        media_type="image/jpeg",
+    )
+    response = _download_response(
+        "get_document_page_image",
+        document_id=document_id,
+        resource_uri=resource.resource_uri,
+        file_path=resource.path,
+        credits_used=credits_used,
+        cached=False,
+        page_number=page_number,
+        media_type="image/jpeg",
+    )
+    _add_session_credit_fields(response, cache_manager, config=config, session_id=session_id)
+    return tool_json_result(response)
+
+
+def _call_get_document_original(
+    api_client: MomongaApiClient,
+    arguments: dict[str, Any],
+    cache_manager_getter: Callable[[], CacheManager] | None,
+    *,
+    config: Config,
+    session_id: str,
+) -> dict[str, Any]:
+    _require_download_flags(arguments)
+    document_id = _required_string(arguments, "document_id")
+    original_id = _required_string(arguments, "original_id")
+    if cache_manager_getter is None:
+        raise ValueError("cache manager is required for get_document_original")
+
+    cache_manager = cache_manager_getter()
+    cached = cache_manager.get_original_file(document_id, original_id)
+    if cached is not None:
+        metadata = cache_manager.read_json(
+            CachedResource(resource_uri=cached.resource_uri, path=cached.path.with_name("metadata.json"))
+        )
+        response = _download_response(
+            "get_document_original",
+            document_id=document_id,
+            resource_uri=cached.resource_uri,
+            file_path=cached.path,
+            credits_used=0,
+            cached=True,
+            original_id=original_id,
+            media_type=str(metadata.get("media_type") or "application/octet-stream"),
+            filename=str(metadata.get("filename") or cached.path.name),
+        )
+        _add_session_credit_fields(response, cache_manager, config=config, session_id=session_id)
+        cache_manager.record_api_call(
+            tool_name="get_document_original",
+            endpoint=f"/documents/{_quote_path_component(document_id)}/originals/{_quote_path_component(original_id)}",
+            cache_hit=True,
+            credits_used=0,
+        )
+        return tool_json_result(response)
+
+    endpoint = f"/documents/{_quote_path_component(document_id)}/originals/{_quote_path_component(original_id)}"
+    binary_response, credits_used = _call_credit_binary_api(
+        api_client.get_binary,
+        endpoint,
+        tool_name="get_document_original",
+        config=config,
+        cache_manager_getter=cache_manager_getter,
+        session_id=session_id,
+    )
+    file_bytes = binary_response.content
+    filename = binary_response.filename
+    media_type = binary_response.media_type
+    if not filename or media_type == "application/octet-stream":
+        original_manifest = _original_manifest_entry(api_client, document_id, original_id)
+        if not filename:
+            manifest_filename = original_manifest.get("filename")
+            if not isinstance(manifest_filename, str) or not manifest_filename.strip():
+                raise ValueError("list_document_originals did not return filename for original_id")
+            filename = manifest_filename.strip()
+
+        manifest_media_type = original_manifest.get("media_type")
+        if media_type == "application/octet-stream" and isinstance(manifest_media_type, str) and manifest_media_type.strip():
+            media_type = manifest_media_type
+    resource = cache_manager.store_original_file(
+        document_id,
+        original_id,
+        file_bytes,
+        filename=filename,
+        media_type=media_type,
+    )
+    response = _download_response(
+        "get_document_original",
+        document_id=document_id,
+        resource_uri=resource.resource_uri,
+        file_path=resource.path,
+        credits_used=credits_used,
+        cached=False,
+        original_id=original_id,
+        media_type=media_type,
+        filename=filename,
+    )
+    _add_session_credit_fields(response, cache_manager, config=config, session_id=session_id)
+    return tool_json_result(response)
+
+
 def _add_session_credit_fields(
     response: dict[str, Any],
     cache_manager: CacheManager,
@@ -289,9 +450,7 @@ def _call_credit_api(
 ) -> tuple[dict[str, Any], int]:
     credits = CREDIT_COSTS[tool_name]
     if credits > config.max_credits_per_tool_call:
-        raise ValueError(
-            f"{tool_name} would use {credits} credits, exceeding per-call limit {config.max_credits_per_tool_call}"
-        )
+        raise ValueError(f"{tool_name} would use {credits} credits, exceeding per-call limit {config.max_credits_per_tool_call}")
     if cache_manager_getter is None:
         raise ValueError("cache manager is required for credit accounting")
 
@@ -307,6 +466,85 @@ def _call_credit_api(
     cache_manager.record_session_credits(session_id, credits)
     cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=credits)
     return response, credits
+
+
+def _call_credit_binary_api(
+    api_call: Callable[..., Any],
+    endpoint: str,
+    *,
+    tool_name: str,
+    config: Config,
+    cache_manager_getter: Callable[[], CacheManager] | None,
+    session_id: str,
+) -> tuple[Any, int]:
+    credits = CREDIT_COSTS[tool_name]
+    if credits > config.max_credits_per_tool_call:
+        raise ValueError(f"{tool_name} would use {credits} credits, exceeding per-call limit {config.max_credits_per_tool_call}")
+    if cache_manager_getter is None:
+        raise ValueError("cache manager is required for credit accounting")
+
+    cache_manager = cache_manager_getter()
+    session_credits = cache_manager.get_session_credits_used(session_id)
+    if session_credits + credits > config.max_credits_per_session:
+        raise ValueError(
+            f"{tool_name} would use {credits} credits, exceeding session limit "
+            f"{config.max_credits_per_session} with {session_credits} already used"
+        )
+
+    response = api_call(endpoint)
+    cache_manager.record_session_credits(session_id, credits)
+    cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=credits)
+    return response, credits
+
+
+def _require_download_flags(arguments: dict[str, Any]) -> None:
+    if arguments.get("allow_file_download") is not True:
+        raise ValueError("allow_file_download must be true for file download tools")
+
+
+def _download_response(
+    tool_name: str,
+    *,
+    document_id: str,
+    resource_uri: str,
+    file_path: Any,
+    credits_used: int,
+    cached: bool,
+    page_number: int | None = None,
+    original_id: str | None = None,
+    media_type: str,
+    filename: str | None = None,
+) -> dict[str, Any]:
+    response: dict[str, Any] = {
+        "ok": True,
+        "document_id": document_id,
+        "file_path": str(file_path),
+        "resource_uri": resource_uri,
+        "media_type": media_type,
+        "credits_used": credits_used,
+        "cached": cached,
+    }
+    if tool_name == "get_document_page_image":
+        response["page_number"] = page_number
+    if tool_name == "get_document_original":
+        response["original_id"] = original_id
+        response["filename"] = filename
+    return response
+
+
+def _original_manifest_entry(
+    api_client: MomongaApiClient,
+    document_id: str,
+    original_id: str,
+) -> dict[str, Any]:
+    payload = api_client.get(f"/documents/{_quote_path_component(document_id)}/originals")
+    originals = payload.get("originals")
+    if not isinstance(originals, list):
+        raise ValueError("list_document_originals returned no originals array")
+    for item in originals:
+        if isinstance(item, dict) and item.get("original_id") == original_id:
+            return item
+    raise ValueError("original_id was not returned by list_document_originals")
 
 
 def _validate_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> None:

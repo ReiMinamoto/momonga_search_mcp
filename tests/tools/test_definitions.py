@@ -20,6 +20,8 @@ class ToolDefinitionTests(unittest.TestCase):
                 "list_document_originals",
                 "list_news",
                 "get_document_content",
+                "get_document_original",
+                "get_document_page_image",
                 "search_documents",
                 "search_news",
             ],
@@ -55,6 +57,19 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["section_ids"]["maxItems"], 5)
         self.assertNotIn("max_chars", schema["properties"])
         self.assertEqual(schema["properties"]["offset"]["minimum"], 0)
+
+    def test_file_download_schemas_require_explicit_flags(self) -> None:
+        schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
+
+        self.assertEqual(
+            schemas["get_document_page_image"]["required"],
+            ["document_id", "page_number", "allow_file_download"],
+        )
+        self.assertEqual(schemas["get_document_page_image"]["properties"]["page_number"]["minimum"], 1)
+        self.assertEqual(
+            schemas["get_document_original"]["required"],
+            ["document_id", "original_id", "allow_file_download"],
+        )
 
 
 if __name__ == "__main__":

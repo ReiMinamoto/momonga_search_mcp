@@ -180,7 +180,10 @@ class CacheManager:
         media_type: str,
         metadata: dict[str, Any] | None = None,
     ) -> CachedResource:
-        path = self._write_bytes(("documents", document_id, "originals", original_id, _safe_segment(filename)), content)
+        safe_filename = filename.replace("/", "_").replace("\\", "_").strip()
+        if not safe_filename or safe_filename in {".", ".."}:
+            safe_filename = "file"
+        path = self._write_bytes(("documents", document_id, "originals", original_id, safe_filename), content)
         stored_metadata = {**(metadata or {}), "filename": filename, "media_type": media_type}
         metadata_path = self._write_json(("documents", document_id, "originals", original_id, "metadata.json"), stored_metadata)
         resource_uri = self.document_original_uri(document_id, original_id)

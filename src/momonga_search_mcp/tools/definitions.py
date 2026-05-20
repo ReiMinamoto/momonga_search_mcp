@@ -55,7 +55,10 @@ ZERO_CREDIT_DOCUMENT_TOOLS: dict[str, dict[str, Any]] = {
                     "type": "array",
                     "items": {"type": "string", "enum": ["edinet_filing", "timely_disclosure", "ir_material"]},
                 },
-                "timeline_since": {"type": "string", "description": "Inclusive start date filter in JST, YYYY-MM-DD."},
+                "timeline_since": {
+                    "type": "string",
+                    "description": ("Inclusive start date filter in JST, YYYY-MM-DD. Required when security_codes is omitted."),
+                },
                 "timeline_until": {"type": "string", "description": "Inclusive end date filter in JST, YYYY-MM-DD."},
                 "limit": LIST_LIMIT_SCHEMA,
                 "cursor": {
@@ -167,6 +170,36 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
                 },
             },
             "required": ["document_id", "section_ids"],
+            "additionalProperties": False,
+        },
+    },
+    "get_document_original": {
+        "description": (
+            "Download one original file to the local cache. Consumes 8 credits on cache miss. Requires allow_file_download=true."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string"},
+                "original_id": {"type": "string"},
+                "allow_file_download": {"type": "boolean"},
+            },
+            "required": ["document_id", "original_id", "allow_file_download"],
+            "additionalProperties": False,
+        },
+    },
+    "get_document_page_image": {
+        "description": (
+            "Download one page image to the local cache. Consumes 1 credit on cache miss. Requires allow_file_download=true."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string"},
+                "page_number": {"type": "integer", "minimum": 1},
+                "allow_file_download": {"type": "boolean"},
+            },
+            "required": ["document_id", "page_number", "allow_file_download"],
             "additionalProperties": False,
         },
     },

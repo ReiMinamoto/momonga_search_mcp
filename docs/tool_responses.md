@@ -245,6 +245,121 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 `content_available`, `content_status`, `original_available`, `kind`, `role`, `size_bytes`, `sha256` などの補助 metadata。
 
+## `get_document_original`
+
+元ファイルを1件取得し、ローカル cache に保存します。
+
+この tool は file download を伴うため、`allow_file_download=true` が必須です。cache hit の場合は API の実体取得を行わず、credit も消費しません。
+
+実体レスポンスの `Content-Disposition` から `filename` が取れない場合、または `Content-Type` が `application/octet-stream` の場合だけ、`GET /v1/documents/{document_id}/originals` を確認して `filename` / `media_type` を補完します。
+
+対応エンドポイント:
+
+- 実体取得: `GET /v1/documents/{document_id}/originals/{original_id}`
+- fallback manifest 確認: `GET /v1/documents/{document_id}/originals`
+
+### パラメータ差分
+
+| Tool parameter | API parameter | 理由 |
+| --- | --- | --- |
+| `document_id` | `document_id` | 対象文書 ID。 |
+| `original_id` | `original_id` | `/originals` に含まれる元ファイル ID。 |
+| `allow_file_download` | なし | ローカルファイル保存を明示許可する MCP 専用 parameter。`true` 以外は拒否します。 |
+
+### 返り値
+
+```json
+{
+  "ok": true,
+  "document_id": "doc_123",
+  "original_id": "pdf",
+  "file_path": "/home/user/.cache/momonga-search-mcp/cache/documents/doc_123/originals/pdf/report.pdf",
+  "resource_uri": "momonga://documents/doc_123/originals/pdf",
+  "media_type": "application/pdf",
+  "filename": "report.pdf",
+  "credits_used": 8,
+  "cached": false,
+  "session_credits_used": 8,
+  "session_credit_limit": 30,
+  "session_credits_remaining": 22
+}
+```
+
+### 残す field
+
+| Field | 理由 |
+| --- | --- |
+| `document_id` | 対象文書の確認。 |
+| `original_id` | 取得した元ファイルの確認。 |
+| `file_path` | ローカルに保存した実体ファイルの場所。 |
+| `resource_uri` | cache 済み元ファイルを指すローカル resource ID。 |
+| `media_type` | PDF / ZIP などファイル種別の判断。実体レスポンスヘッダを優先し、不明な場合は `/originals` manifest を fallback に使います。 |
+| `filename` | 保存ファイル名。実体レスポンスヘッダを優先し、不明な場合は `/originals` manifest を fallback に使います。 |
+| `credits_used` | この tool call で消費した credit。cache hit の場合は `0`。 |
+| `cached` | 実体取得 API を呼ばず cache から返したかどうか。 |
+| `session_credits_used` | MCP session 内の累計 credit 使用量。 |
+| `session_credit_limit` | MCP session の credit 上限。 |
+| `session_credits_remaining` | MCP session 内で残っている credit。 |
+
+### 落とす field
+
+実体ファイルの bytes は MCP response に載せません。`list_document_originals` で落としている `kind`, `role`, `size_bytes`, `sha256` などの manifest metadata も返しません。
+
+## `get_document_page_image`
+
+ページ画像を1件取得し、ローカル cache に保存します。
+
+この tool は file download を伴うため、`allow_file_download=true` が必須です。cache hit の場合は API の実体取得を行わず、credit も消費しません。
+
+取得可能な page は、先に `list_document_page_images` で確認します。page image は API 仕様上 JPEG なので、MCP response の `media_type` は `image/jpeg` 固定です。
+
+対応エンドポイント: `GET /v1/documents/{document_id}/pages/{page_number}/image`
+
+### パラメータ差分
+
+| Tool parameter | API parameter | 理由 |
+| --- | --- | --- |
+| `document_id` | `document_id` | 対象文書 ID。 |
+| `page_number` | `page_number` | `/page-images` に含まれるページ番号。 |
+| `allow_file_download` | なし | ローカルファイル保存を明示許可する MCP 専用 parameter。`true` 以外は拒否します。 |
+
+### 返り値
+
+```json
+{
+  "ok": true,
+  "document_id": "doc_123",
+  "page_number": 2,
+  "file_path": "/home/user/.cache/momonga-search-mcp/cache/documents/doc_123/pages/2.jpg",
+  "resource_uri": "momonga://documents/doc_123/pages/2",
+  "media_type": "image/jpeg",
+  "credits_used": 1,
+  "cached": false,
+  "session_credits_used": 1,
+  "session_credit_limit": 30,
+  "session_credits_remaining": 29
+}
+```
+
+### 残す field
+
+| Field | 理由 |
+| --- | --- |
+| `document_id` | 対象文書の確認。 |
+| `page_number` | 取得したページの確認。 |
+| `file_path` | ローカルに保存した画像ファイルの場所。 |
+| `resource_uri` | cache 済みページ画像を指すローカル resource ID。 |
+| `media_type` | API 仕様上 `image/jpeg`。 |
+| `credits_used` | この tool call で消費した credit。cache hit の場合は `0`。 |
+| `cached` | 実体取得 API を呼ばず cache から返したかどうか。 |
+| `session_credits_used` | MCP session 内の累計 credit 使用量。 |
+| `session_credit_limit` | MCP session の credit 上限。 |
+| `session_credits_remaining` | MCP session 内で残っている credit。 |
+
+### 落とす field
+
+画像 bytes は MCP response に載せません。画像の解析結果もこの tool では返しません。
+
 ## `list_news`
 
 条件に合うニュースを一覧します。

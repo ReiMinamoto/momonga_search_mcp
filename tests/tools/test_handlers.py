@@ -384,6 +384,264 @@ class ToolHandlerTests(unittest.TestCase):
             },
         )
 
+    def test_file_download_tools_require_explicit_flags(self) -> None:
+        calls = [
+            (
+                "get_document_page_image",
+                {"document_id": "doc_123", "page_number": 1},
+                "allow_file_download is required",
+            ),
+            (
+                "get_document_original",
+                {"document_id": "doc_123", "original_id": "pdf", "allow_file_download": False},
+                "allow_file_download must be true for file download tools",
+            ),
+        ]
+
+        for name, arguments, expected_message in calls:
+            response = call_tool(FakeApiClient(), {"name": name, "arguments": arguments})
+            payload = json.loads(response["content"][0]["text"])
+
+            self.assertTrue(response["isError"])
+            self.assertEqual(payload["error"]["message"], expected_message)
+
+    def test_get_document_page_image_downloads_and_caches_file(self) -> None:
+        api_client = FakeApiClient()
+        api_client.binary_response = api_client.binary_response.__class__(
+            content=b"jpeg-bytes",
+            media_type="image/png",
+            filename=None,
+        )
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            response = call_tool(
+                api_client,
+                {
+                    "name": "get_document_page_image",
+                    "arguments": {
+                        "document_id": "doc_123",
+                        "page_number": 2,
+                        "allow_file_download": True,
+                    },
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+            payload = json.loads(response["content"][0]["text"])
+            cached_page = cache_manager.get_page_image("doc_123", 2)
+            downloaded_path = Path(payload["file_path"])
+            self.assertTrue(downloaded_path.exists())
+            self.assertEqual(downloaded_path.read_bytes(), b"jpeg-bytes")
+
+        self.assertEqual(api_client.calls, [("GET_BINARY", "/documents/doc_123/pages/2/image", None)])
+        self.assertFalse(payload["cached"])
+        self.assertEqual(payload["credits_used"], 1)
+        self.assertEqual(payload["page_number"], 2)
+        self.assertEqual(payload["media_type"], "image/jpeg")
+        self.assertEqual(payload["resource_uri"], "momonga://documents/doc_123/pages/2")
+        self.assertNotIn("metadata", payload)
+        self.assertIsNotNone(cached_page)
+
+    def test_get_document_original_downloads_and_caches_file(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {
+            "document_id": "doc_123",
+            "originals": [
+                {
+                    "original_id": "pdf",
+                    "filename": "manifest-report.pdf",
+                    "media_type": "application/pdf",
+                    "kind": "pdf",
+                    "role": "primary",
+                    "size_bytes": 1000,
+                    "credit_cost": 8,
+                    "sha256": "not returned in tool metadata",
+                }
+            ],
+        }
+        api_client.binary_response = api_client.binary_response.__class__(
+            content=b"pdf-bytes",
+            media_type="application/octet-stream",
+            filename=None,
+        )
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            response = call_tool(
+                api_client,
+                {
+                    "name": "get_document_original",
+                    "arguments": {
+                        "document_id": "doc_123",
+                        "original_id": "pdf",
+                        "allow_file_download": True,
+                    },
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+            payload = json.loads(response["content"][0]["text"])
+            cached_original = cache_manager.get_original_file("doc_123", "pdf")
+            downloaded_path = Path(payload["file_path"])
+            self.assertTrue(downloaded_path.exists())
+            self.assertEqual(downloaded_path.read_bytes(), b"pdf-bytes")
+
+        self.assertEqual(
+            api_client.calls,
+            [
+                ("GET_BINARY", "/documents/doc_123/originals/pdf", None),
+                ("GET", "/documents/doc_123/originals", None),
+            ],
+        )
+        self.assertFalse(payload["cached"])
+        self.assertEqual(payload["credits_used"], 8)
+        self.assertEqual(payload["original_id"], "pdf")
+        self.assertEqual(payload["filename"], "manifest-report.pdf")
+        self.assertEqual(payload["media_type"], "application/pdf")
+        self.assertEqual(payload["resource_uri"], "momonga://documents/doc_123/originals/pdf")
+        self.assertNotIn("metadata", payload)
+        self.assertIsNotNone(cached_original)
+
+    def test_get_document_original_uses_binary_headers_without_manifest_lookup(self) -> None:
+        api_client = FakeApiClient()
+        api_client.binary_response = api_client.binary_response.__class__(
+            content=b"pdf-bytes",
+            media_type="application/pdf",
+            filename="header-report.pdf",
+        )
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            response = call_tool(
+                api_client,
+                {
+                    "name": "get_document_original",
+                    "arguments": {
+                        "document_id": "doc_123",
+                        "original_id": "pdf",
+                        "allow_file_download": True,
+                    },
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+            payload = json.loads(response["content"][0]["text"])
+
+        self.assertEqual(api_client.calls, [("GET_BINARY", "/documents/doc_123/originals/pdf", None)])
+        self.assertFalse(payload["cached"])
+        self.assertEqual(payload["filename"], "header-report.pdf")
+        self.assertEqual(payload["media_type"], "application/pdf")
+
+    def test_get_document_original_rejects_original_id_not_in_manifest_when_fallback_is_needed(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {"document_id": "doc_123", "originals": [{"original_id": "xbrl"}]}
+        api_client.binary_response = api_client.binary_response.__class__(
+            content=b"pdf-bytes",
+            media_type="application/octet-stream",
+            filename=None,
+        )
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            response = call_tool(
+                api_client,
+                {
+                    "name": "get_document_original",
+                    "arguments": {
+                        "document_id": "doc_123",
+                        "original_id": "pdf",
+                        "allow_file_download": True,
+                    },
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+            payload = json.loads(response["content"][0]["text"])
+            session_credits = cache_manager.get_session_credits_used("default")
+
+        self.assertEqual(
+            api_client.calls,
+            [
+                ("GET_BINARY", "/documents/doc_123/originals/pdf", None),
+                ("GET", "/documents/doc_123/originals", None),
+            ],
+        )
+        self.assertTrue(response["isError"])
+        self.assertEqual(payload["error"]["message"], "original_id was not returned by list_document_originals")
+        self.assertEqual(session_credits, 8)
+
+    def test_get_document_original_requires_manifest_filename_when_fallback_is_needed(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {"document_id": "doc_123", "originals": [{"original_id": "pdf", "media_type": "application/pdf"}]}
+        api_client.binary_response = api_client.binary_response.__class__(
+            content=b"pdf-bytes",
+            media_type="application/octet-stream",
+            filename=None,
+        )
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            response = call_tool(
+                api_client,
+                {
+                    "name": "get_document_original",
+                    "arguments": {
+                        "document_id": "doc_123",
+                        "original_id": "pdf",
+                        "allow_file_download": True,
+                    },
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+            payload = json.loads(response["content"][0]["text"])
+            session_credits = cache_manager.get_session_credits_used("default")
+
+        self.assertEqual(
+            api_client.calls,
+            [
+                ("GET_BINARY", "/documents/doc_123/originals/pdf", None),
+                ("GET", "/documents/doc_123/originals", None),
+            ],
+        )
+        self.assertTrue(response["isError"])
+        self.assertEqual(payload["error"]["message"], "list_document_originals did not return filename for original_id")
+        self.assertEqual(session_credits, 8)
+
+    def test_file_download_cache_hit_avoids_api_and_credit_use(self) -> None:
+        api_client = FakeApiClient()
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            cache_manager.store_original_file(
+                "doc_123",
+                "pdf",
+                b"cached-pdf",
+                filename="cached.pdf",
+                media_type="application/pdf",
+            )
+
+            response = call_tool(
+                api_client,
+                {
+                    "name": "get_document_original",
+                    "arguments": {
+                        "document_id": "doc_123",
+                        "original_id": "pdf",
+                        "allow_file_download": True,
+                    },
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+        payload = json.loads(response["content"][0]["text"])
+        self.assertEqual(api_client.calls, [])
+        self.assertTrue(payload["cached"])
+        self.assertEqual(payload["credits_used"], 0)
+        self.assertEqual(payload["filename"], "cached.pdf")
+        self.assertEqual(payload["media_type"], "application/pdf")
+        self.assertNotIn("metadata", payload)
+
     def test_call_tool_returns_model_facing_unknown_tool_error(self) -> None:
         response = call_tool(FakeApiClient(), {"name": "missing_tool", "arguments": {}})
         payload = json.loads(response["content"][0]["text"])

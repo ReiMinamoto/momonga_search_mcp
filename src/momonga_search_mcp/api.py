@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from email.message import Message
 from email.utils import parsedate_to_datetime
 import json
 from typing import Any, BinaryIO
@@ -38,6 +39,13 @@ class MomongaApiError(RuntimeError):
         return f"{self.code}: {self.message}"
 
 
+@dataclass(frozen=True)
+class BinaryApiResponse:
+    content: bytes
+    media_type: str
+    filename: str | None = None
+
+
 class MomongaApiClient:
     def __init__(self, config: Config, transport: Transport | None = None) -> None:
         self.base_url = config.base_url.rstrip("/")
@@ -50,6 +58,9 @@ class MomongaApiClient:
 
     def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.request("POST", path, payload=payload)
+
+    def get_binary(self, path: str, params: dict[str, Any] | None = None) -> BinaryApiResponse:
+        return self.request_binary("GET", path, params=params)
 
     def request(
         self,
@@ -74,6 +85,44 @@ class MomongaApiClient:
         try:
             with self._transport(request, self.timeout_seconds) as response:
                 return _decode_json(response.read())
+        except HTTPError as exc:
+            raise _api_error_from_http_error(exc) from exc
+        except TimeoutError as exc:
+            raise MomongaApiError(None, "request_timeout", "Momonga Search API request timed out") from exc
+        except URLError as exc:
+            raise MomongaApiError(None, "network_error", "Momonga Search API request failed", detail=str(exc.reason)) from exc
+
+    def request_binary(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> BinaryApiResponse:
+        url = self._url(path, params)
+        request = Request(
+            url,
+            headers={
+                "Accept": "*/*",
+                "Authorization": f"Bearer {self.api_key}",
+                "User-Agent": "momonga-search-mcp/0.1",
+            },
+            method=method.upper(),
+        )
+        try:
+            with self._transport(request, self.timeout_seconds) as response:
+                headers = getattr(response, "headers", None)
+                content = response.read()
+                content_disposition = _header_value(headers, "Content-Disposition")
+                message = Message()
+                if content_disposition is not None:
+                    message["Content-Disposition"] = content_disposition
+                filename = message.get_filename()
+                return BinaryApiResponse(
+                    content=content,
+                    media_type=_header_value(headers, "Content-Type") or "application/octet-stream",
+                    filename=filename.strip() if isinstance(filename, str) and filename.strip() else None,
+                )
         except HTTPError as exc:
             raise _api_error_from_http_error(exc) from exc
         except TimeoutError as exc:
@@ -131,6 +180,15 @@ def _decode_json(raw_body: bytes) -> dict[str, Any]:
     if not isinstance(decoded, dict):
         raise MomongaApiError(None, "invalid_response", "Momonga Search API returned a non-object JSON response")
     return decoded
+
+
+def _header_value(headers: Any, name: str) -> str | None:
+    if headers is None:
+        return None
+    value = headers.get(name)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
 
 
 def _api_error_from_http_error(exc: HTTPError) -> MomongaApiError:
@@ -205,7 +263,9 @@ def _default_next_action(error: MomongaApiError) -> str:
     if error.code in {"request_timeout", "search_backend_timeout"}:
         return "Retry once with a short backoff; if it continues, narrow the query or reduce requested results."
     if error.code == "content_not_available":
-        return "Do not retry the same content request immediately; inspect content_status and use available metadata or references."
+        return (
+            "Do not retry the same content request immediately; inspect content_status and use available metadata or references."
+        )
     if error.code in {"network_error", "invalid_response"}:
         return "Retry once; if the error persists, report the API connectivity or response issue."
     return "Do not repeat the same request unchanged; adjust inputs or report the error details to the user."

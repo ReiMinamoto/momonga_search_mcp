@@ -127,6 +127,21 @@ class CacheManagerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "path segment"):
                 cache.store_document_toc("../secret", {"toc": []})
 
+    def test_sanitizes_original_filename(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache = CacheManager(cache_dir=Path(temp_dir))
+
+            resource = cache.store_original_file(
+                "doc_123",
+                "orig_1",
+                b"pdf-bytes",
+                filename="../report.pdf",
+                media_type="application/pdf",
+            )
+
+            self.assertEqual(resource.path.name, ".._report.pdf")
+            self.assertEqual(resource.path.read_bytes(), b"pdf-bytes")
+
     def test_returns_none_for_cache_misses(self) -> None:
         with TemporaryDirectory() as temp_dir:
             cache = CacheManager(cache_dir=Path(temp_dir))

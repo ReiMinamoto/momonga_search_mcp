@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from momonga_search_mcp.api import MomongaApiError
+from momonga_search_mcp.api import BinaryApiResponse, MomongaApiError
 
 
 class FakeApiClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict[str, object] | None]] = []
         self.response: dict[str, object] = {"results": []}
+        self.binary_response = BinaryApiResponse(
+            content=b"file-bytes",
+            media_type="application/octet-stream",
+            filename=None,
+        )
         self.error: MomongaApiError | None = None
 
     def get(self, path: str, params: dict[str, object] | None = None) -> dict[str, object]:
@@ -20,3 +25,9 @@ class FakeApiClient:
         if self.error is not None:
             raise self.error
         return self.response
+
+    def get_binary(self, path: str, params: dict[str, object] | None = None) -> BinaryApiResponse:
+        self.calls.append(("GET_BINARY", path, params))
+        if self.error is not None:
+            raise self.error
+        return self.binary_response
