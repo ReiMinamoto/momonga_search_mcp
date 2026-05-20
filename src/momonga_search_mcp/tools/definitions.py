@@ -28,6 +28,16 @@ TOP_K_SCHEMA = {
     "description": "Number of search results to return. API maximum is 50; MCP default runtime limit is 10.",
 }
 
+# OpenAI/Codex-compatible tool schemas cannot use top-level anyOf. Enforce these at runtime instead.
+TOOL_ARGUMENT_ALTERNATIVES: dict[str, list[dict[str, list[str]]]] = {
+    "list_documents": [{"required": ["security_codes"]}, {"required": ["timeline_since"]}],
+    "list_news": [
+        {"required": ["security_codes"]},
+        {"required": ["macro_tags"]},
+        {"required": ["timeline_since"]},
+    ],
+}
+
 ZERO_CREDIT_DOCUMENT_TOOLS: dict[str, dict[str, Any]] = {
     "search_issuers": {
         "description": "Search issuers by company name or security code.",
@@ -44,12 +54,16 @@ ZERO_CREDIT_DOCUMENT_TOOLS: dict[str, dict[str, Any]] = {
     "list_documents": {
         "description": (
             "List document summaries, newest first by timeline_at. "
-            "Use filters; when security_codes is omitted, timeline_since is required by the API."
+            "Provide security_codes or timeline_since (required when security_codes is omitted)."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "security_codes": {"type": "array", "items": {"type": "string"}},
+                "security_codes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Security code filters. Required unless timeline_since is provided.",
+                },
                 "document_types": {"type": "array", "items": {"type": "string", "enum": ["yuho", "tanshin", "other"]}},
                 "document_families": {
                     "type": "array",
@@ -66,7 +80,6 @@ ZERO_CREDIT_DOCUMENT_TOOLS: dict[str, dict[str, Any]] = {
                     "description": "Pagination cursor from the previous response's next_cursor. Use with the same filters.",
                 },
             },
-            "anyOf": [{"required": ["security_codes"]}, {"required": ["timeline_since"]}],
             "additionalProperties": False,
         },
     },
@@ -112,14 +125,28 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
     "list_news": {
         "description": (
             "List news statements with references. Consumes 1 credit per API call. "
-            "Keep news separate from document ranking in the MVP."
+            "Provide at least one of security_codes, macro_tags, or timeline_since."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "security_codes": {"type": "array", "items": {"type": "string"}},
-                "macro_tags": {"type": "array", "items": {"type": "string", "enum": MACRO_TAGS}},
-                "timeline_since": {"type": "string", "description": "Inclusive start date filter in JST, YYYY-MM-DD."},
+                "security_codes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Security code filters.",
+                },
+                "macro_tags": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": MACRO_TAGS},
+                    "description": "Macro tag filters. At least one filter field is required.",
+                },
+                "timeline_since": {
+                    "type": "string",
+                    "description": (
+                        "Inclusive start date filter in JST, YYYY-MM-DD. "
+                        "At least one of security_codes, macro_tags, or timeline_since is required."
+                    ),
+                },
                 "timeline_until": {"type": "string", "description": "Inclusive end date filter in JST, YYYY-MM-DD."},
                 "limit": LIST_LIMIT_SCHEMA,
                 "cursor": {
@@ -127,11 +154,6 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
                     "description": "Pagination cursor from the previous response's next_cursor. Use with the same filters.",
                 },
             },
-            "anyOf": [
-                {"required": ["security_codes"]},
-                {"required": ["macro_tags"]},
-                {"required": ["timeline_since"]},
-            ],
             "additionalProperties": False,
         },
     },

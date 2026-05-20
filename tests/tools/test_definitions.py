@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from momonga_search_mcp.tools.definitions import tool_definitions
+from momonga_search_mcp.tools.definitions import TOOL_ARGUMENT_ALTERNATIVES, tool_definitions
 
 
 class ToolDefinitionTests(unittest.TestCase):
@@ -27,15 +27,21 @@ class ToolDefinitionTests(unittest.TestCase):
             ],
         )
 
-    def test_list_tool_schemas_include_required_filter_alternatives(self) -> None:
+    def test_list_tool_schemas_are_openai_compatible(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
 
+        for tool_name, schema in schemas.items():
+            self.assertEqual(schema["type"], "object")
+            for key in ("anyOf", "oneOf", "allOf", "not"):
+                self.assertNotIn(key, schema, msg=f"{tool_name} must not use top-level {key}")
+
+    def test_list_tool_argument_alternatives_are_enforced_at_runtime(self) -> None:
         self.assertEqual(
-            schemas["list_documents"]["anyOf"],
+            TOOL_ARGUMENT_ALTERNATIVES["list_documents"],
             [{"required": ["security_codes"]}, {"required": ["timeline_since"]}],
         )
         self.assertEqual(
-            schemas["list_news"]["anyOf"],
+            TOOL_ARGUMENT_ALTERNATIVES["list_news"],
             [{"required": ["security_codes"]}, {"required": ["macro_tags"]}, {"required": ["timeline_since"]}],
         )
 

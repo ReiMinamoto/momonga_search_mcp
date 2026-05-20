@@ -9,7 +9,7 @@ from urllib.parse import quote
 from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
 from momonga_search_mcp.cache import CachedResource, CacheManager
 from momonga_search_mcp.config import Config
-from momonga_search_mcp.tools.definitions import CREDIT_TOOLS, ZERO_CREDIT_DOCUMENT_TOOLS
+from momonga_search_mcp.tools.definitions import CREDIT_TOOLS, TOOL_ARGUMENT_ALTERNATIVES, ZERO_CREDIT_DOCUMENT_TOOLS
 from momonga_search_mcp.tools.response import (
     get_document_content_response,
     get_document_toc_response,
@@ -559,7 +559,7 @@ def _validate_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> None:
         if name not in arguments:
             raise ValueError(f"{name} is required")
 
-    any_of = schema.get("anyOf")
+    any_of = TOOL_ARGUMENT_ALTERNATIVES.get(tool_name)
     if isinstance(any_of, list) and not any(
         all(_has_present_value(arguments, required_name) for required_name in option.get("required", [])) for option in any_of
     ):
