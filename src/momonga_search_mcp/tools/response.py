@@ -103,20 +103,32 @@ def get_document_content_response(
     max_chars: int,
     offset: int,
 ) -> dict[str, Any]:
+    remaining_chars = max_chars
+    section_responses = []
+    character_limit_reached = False
+    for section, resource_uri in content_sections:
+        section_response = _content_section_response(
+            section,
+            resource_uri=resource_uri,
+            cached=cached_sections,
+            return_content=return_content,
+            max_chars=remaining_chars,
+            offset=offset,
+        )
+        if return_content:
+            content = section_response.get("content")
+            if isinstance(content, str):
+                remaining_chars = max(0, remaining_chars - len(content))
+            if section_response.get("truncated") is True:
+                character_limit_reached = True
+        section_responses.append(section_response)
+
     return {
         "ok": True,
         "document_id": document_id,
-        "content_sections": [
-            _content_section_response(
-                section,
-                resource_uri=resource_uri,
-                cached=cached_sections,
-                return_content=return_content,
-                max_chars=max_chars,
-                offset=offset,
-            )
-            for section, resource_uri in content_sections
-        ],
+        "content_sections": section_responses,
+        "max_characters": max_chars,
+        "character_limit_reached": character_limit_reached,
         "cache_hit": cache_hit,
     }
 

@@ -7,6 +7,7 @@ import unittest
 
 from momonga_search_mcp.api import MomongaApiError
 from momonga_search_mcp.cache import CacheManager
+from momonga_search_mcp.config import Config
 from momonga_search_mcp.tools.handlers import call_tool
 from tests.tools.fakes import FakeApiClient
 
@@ -96,11 +97,24 @@ class ToolHandlerTests(unittest.TestCase):
             ),
         ]
 
-        for name, arguments, expected_path, expected_payload in calls:
-            call_tool(api_client, {"name": name, "arguments": arguments})
-            self.assertEqual(
-                api_client.calls[-1], ("POST" if name.startswith("search_") else "GET", expected_path, expected_payload)
-            )
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            for name, arguments, expected_path, expected_payload in calls:
+                response = call_tool(
+                    api_client,
+                    {"name": name, "arguments": arguments},
+                    cache_manager_getter=lambda: cache_manager,
+                )
+                payload = json.loads(response["content"][0]["text"])
+                self.assertEqual(
+                    api_client.calls[-1], ("POST" if name.startswith("search_") else "GET", expected_path, expected_payload)
+                )
+                self.assertEqual(payload["credits_used"], 1)
+                self.assertEqual(payload["session_credit_limit"], 30)
+                self.assertEqual(payload["session_credits_remaining"], 30 - payload["session_credits_used"])
+
+            self.assertEqual(cache_manager.get_session_credits_used("default"), 3)
 
     def test_get_document_toc_stores_response(self) -> None:
         api_client = FakeApiClient()
@@ -282,6 +296,43 @@ class ToolHandlerTests(unittest.TestCase):
 
             self.assertTrue(response["isError"])
             self.assertEqual(payload["error"]["message"], expected_message)
+
+    def test_runtime_limits_reject_large_result_and_section_requests(self) -> None:
+        calls = [
+            ("list_documents", {"security_codes": ["8058"], "limit": 21}, "limit must be less than or equal to 20"),
+            ("search_documents", {"query": "価格転嫁", "top_k": 11}, "top_k must be less than or equal to 10"),
+            (
+                "get_document_content",
+                {"document_id": "doc_123", "section_ids": ["sec_1", "sec_2", "sec_3", "sec_4"]},
+                "section_ids must contain at most 3 items",
+            ),
+        ]
+
+        for name, arguments, expected_message in calls:
+            response = call_tool(FakeApiClient(), {"name": name, "arguments": arguments})
+            payload = json.loads(response["content"][0]["text"])
+
+            self.assertTrue(response["isError"])
+            self.assertEqual(payload["error"]["message"], expected_message)
+
+    def test_credit_guard_rejects_session_limit_before_api_call(self) -> None:
+        api_client = FakeApiClient()
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            cache_manager.record_session_credits("session_1", 1)
+
+            response = call_tool(
+                api_client,
+                {"name": "search_documents", "arguments": {"query": "価格転嫁"}},
+                cache_manager_getter=lambda: cache_manager,
+                config=Config(api_key="ms_test_xxx", max_credits_per_session=1),
+                session_id="session_1",
+            )
+
+        payload = json.loads(response["content"][0]["text"])
+        self.assertEqual(api_client.calls, [])
+        self.assertTrue(response["isError"])
+        self.assertIn("exceeding session limit 1", payload["error"]["message"])
 
     def test_call_tool_rejects_unknown_arguments(self) -> None:
         response = call_tool(

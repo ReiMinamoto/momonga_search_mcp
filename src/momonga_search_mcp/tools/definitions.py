@@ -18,14 +18,14 @@ LIST_LIMIT_SCHEMA = {
     "type": "integer",
     "minimum": 1,
     "maximum": 50,
-    "description": "Number of items to return. API maximum is 50; use 20 or fewer unless more are needed.",
+    "description": "Number of items to return. API maximum is 50; MCP default runtime limit is 20.",
 }
 
 TOP_K_SCHEMA = {
     "type": "integer",
     "minimum": 1,
     "maximum": 50,
-    "description": "Number of search results to return. API maximum is 50; use 10 or fewer unless more are needed.",
+    "description": "Number of search results to return. API maximum is 50; MCP default runtime limit is 10.",
 }
 
 ZERO_CREDIT_DOCUMENT_TOOLS: dict[str, dict[str, Any]] = {
@@ -107,7 +107,10 @@ ZERO_CREDIT_DOCUMENT_TOOLS: dict[str, dict[str, Any]] = {
 
 CREDIT_TOOLS: dict[str, dict[str, Any]] = {
     "list_news": {
-        "description": "List news statements with references. Keep news separate from document ranking in the MVP.",
+        "description": (
+            "List news statements with references. Consumes 1 credit per API call. "
+            "Keep news separate from document ranking in the MVP."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -132,7 +135,8 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
     "get_document_content": {
         "description": (
             "Retrieve selected document sections. Only use after get_document_toc or search_documents returns section IDs. "
-            "Returns at most 8000 characters per section; use next_offset with the same single section_id to continue."
+            "Consumes up to 8 credits per API call; cache hits consume 0 credits. "
+            "Returns at most the MCP runtime character limit per call; use next_offset with the same single section_id to continue."
         ),
         "inputSchema": {
             "type": "object",
@@ -143,7 +147,10 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
                     "items": {"type": "string"},
                     "minItems": 1,
                     "maxItems": 5,
-                    "description": "Required section IDs from get_document_toc or search_documents.",
+                    "description": (
+                        "Required section IDs from get_document_toc or search_documents. "
+                        "API maximum is 5; MCP default runtime limit is 3."
+                    ),
                 },
                 "offset": {
                     "type": "integer",
@@ -164,7 +171,7 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "search_documents": {
-        "description": "Search document content. Use short topic terms or evidence-focused questions.",
+        "description": "Search document content. Consumes 1 credit per API call. Use short topic terms or evidence-focused questions.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -193,7 +200,7 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "search_news": {
-        "description": "Search news statements. Keep news separate from document search in the MVP.",
+        "description": "Search news statements. Consumes 1 credit per API call. Keep news separate from document search in the MVP.",
         "inputSchema": {
             "type": "object",
             "properties": {

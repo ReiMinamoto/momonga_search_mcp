@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
 from momonga_search_mcp.cache import CacheManager
+from momonga_search_mcp.config import Config
 from momonga_search_mcp.tools.definitions import CREDIT_TOOLS, ZERO_CREDIT_DOCUMENT_TOOLS
 from momonga_search_mcp.tools.response import (
     get_document_content_response,
@@ -16,8 +17,14 @@ from momonga_search_mcp.tools.response import (
     tool_json_result,
 )
 
-DEFAULT_CONTENT_MAX_CHARS = 8000
+DEFAULT_CONFIG = Config(api_key="")
 TOOL_SCHEMAS = {**ZERO_CREDIT_DOCUMENT_TOOLS, **CREDIT_TOOLS}
+CREDIT_COSTS = {
+    "list_news": 1,
+    "get_document_content": 8,
+    "search_documents": 1,
+    "search_news": 1,
+}
 
 
 def call_tool(
@@ -25,6 +32,8 @@ def call_tool(
     params: Any,
     *,
     cache_manager_getter: Callable[[], CacheManager] | None = None,
+    config: Config = DEFAULT_CONFIG,
+    session_id: str = "default",
 ) -> dict[str, Any]:
     if not isinstance(params, dict):
         return _validation_error("tools/call params must be an object")
@@ -44,6 +53,7 @@ def call_tool(
 
     try:
         _validate_tool_arguments(name, arguments)
+        _validate_runtime_limits(name, arguments, config)
         if name == "search_issuers":
             payload = api_client.get("/issuers/search", _require_arguments(arguments, ("q",), optional=("limit",)))
         elif name == "list_documents":
@@ -71,17 +81,24 @@ def call_tool(
         elif name == "list_document_originals":
             payload = api_client.get(f"/documents/{_quoted_document_id(arguments)}/originals")
         elif name == "list_news":
-            payload = api_client.get(
-                "/news",
-                _select_arguments(
+            params = _select_arguments(
                     arguments,
                     ("security_codes", "macro_tags", "timeline_since", "timeline_until", "limit", "cursor"),
-                ),
+            )
+            payload, credits_used = _call_credit_api(
+                api_client.get,
+                "/news",
+                params,
+                tool_name=name,
+                config=config,
+                cache_manager_getter=cache_manager_getter,
+                session_id=session_id,
             )
         elif name == "get_document_content":
-            return _call_get_document_content(api_client, arguments, cache_manager_getter)
+            return _call_get_document_content(api_client, arguments, cache_manager_getter, config=config, session_id=session_id)
         elif name == "search_documents":
-            payload = api_client.post(
+            payload, credits_used = _call_credit_api(
+                api_client.post,
                 "/search/documents",
                 _require_arguments(
                     arguments,
@@ -97,15 +114,24 @@ def call_tool(
                         "include_snippet",
                     ),
                 ),
+                tool_name=name,
+                config=config,
+                cache_manager_getter=cache_manager_getter,
+                session_id=session_id,
             )
         elif name == "search_news":
-            payload = api_client.post(
+            payload, credits_used = _call_credit_api(
+                api_client.post,
                 "/search/news",
                 _require_arguments(
                     arguments,
                     ("query",),
                     optional=("security_codes", "macro_tags", "timeline_since", "timeline_until", "match_type", "top_k"),
                 ),
+                tool_name=name,
+                config=config,
+                cache_manager_getter=cache_manager_getter,
+                session_id=session_id,
             )
         else:
             raise ValueError(f"Unhandled tool: {name}")
@@ -114,7 +140,12 @@ def call_tool(
     except MomongaApiError as exc:
         return tool_json_result(api_error_response(exc), is_error=True)
 
-    return tool_json_result(success_response(name, payload))
+    response = success_response(name, payload)
+    if name in CREDIT_COSTS:
+        response["credits_used"] = credits_used
+        if cache_manager_getter is not None:
+            _add_session_credit_fields(response, cache_manager_getter(), config=config, session_id=session_id)
+    return tool_json_result(response)
 
 
 def _validation_error(message: str) -> dict[str, Any]:
@@ -160,6 +191,9 @@ def _call_get_document_content(
     api_client: MomongaApiClient,
     arguments: dict[str, Any],
     cache_manager_getter: Callable[[], CacheManager] | None,
+    *,
+    config: Config,
+    session_id: str,
 ) -> dict[str, Any]:
     document_id = _required_string(arguments, "document_id")
     section_ids = arguments["section_ids"]
@@ -180,20 +214,30 @@ def _call_get_document_content(
         if all(resource is not None for resource in cached_resources):
             resources = [resource for resource in cached_resources if resource is not None]
             sections = [cache_manager.read_json(resource) for resource in resources]
-            return tool_json_result(
-                get_document_content_response(
-                    document_id,
-                    list(zip(sections, [resource.resource_uri for resource in resources], strict=True)),
-                    cache_hit=True,
-                    cached_sections=True,
-                    return_content=return_content,
-                    max_chars=DEFAULT_CONTENT_MAX_CHARS,
-                    offset=offset,
-                )
+            response = get_document_content_response(
+                document_id,
+                list(zip(sections, [resource.resource_uri for resource in resources], strict=True)),
+                cache_hit=True,
+                cached_sections=True,
+                return_content=return_content,
+                max_chars=config.max_characters_per_content_call,
+                offset=offset,
             )
+            response["credits_used"] = 0
+            _add_session_credit_fields(response, cache_manager, config=config, session_id=session_id)
+            return tool_json_result(response)
 
     params = {"sections": section_ids}
-    payload = api_client.get(f"/documents/{_quote_path_component(document_id)}/content", params)
+    endpoint = f"/documents/{_quote_path_component(document_id)}/content"
+    payload, credits_used = _call_credit_api(
+        api_client.get,
+        endpoint,
+        params,
+        tool_name="get_document_content",
+        config=config,
+        cache_manager_getter=cache_manager_getter,
+        session_id=session_id,
+    )
     content_sections = payload.get("content_sections")
     section_resources = []
     if isinstance(content_sections, list):
@@ -206,17 +250,63 @@ def _call_get_document_content(
                 (section, cache_manager.store_document_section(document_id, section_id, section).resource_uri)
             )
 
-    return tool_json_result(
-        get_document_content_response(
-            document_id,
-            section_resources,
-            cache_hit=False,
-            cached_sections=False,
-            return_content=return_content,
-            max_chars=DEFAULT_CONTENT_MAX_CHARS,
-            offset=offset,
-        )
+    response = get_document_content_response(
+        document_id,
+        section_resources,
+        cache_hit=False,
+        cached_sections=False,
+        return_content=return_content,
+        max_chars=config.max_characters_per_content_call,
+        offset=offset,
     )
+    response["credits_used"] = credits_used
+    _add_session_credit_fields(response, cache_manager, config=config, session_id=session_id)
+    return tool_json_result(response)
+
+
+def _add_session_credit_fields(
+    response: dict[str, Any],
+    cache_manager: CacheManager,
+    *,
+    config: Config,
+    session_id: str,
+) -> None:
+    session_credits_used = cache_manager.get_session_credits_used(session_id)
+    response["session_credits_used"] = session_credits_used
+    response["session_credit_limit"] = config.max_credits_per_session
+    response["session_credits_remaining"] = max(0, config.max_credits_per_session - session_credits_used)
+
+
+def _call_credit_api(
+    api_call: Callable[..., dict[str, Any]],
+    endpoint: str,
+    payload: dict[str, Any],
+    *,
+    tool_name: str,
+    config: Config,
+    cache_manager_getter: Callable[[], CacheManager] | None,
+    session_id: str,
+) -> tuple[dict[str, Any], int]:
+    credits = CREDIT_COSTS[tool_name]
+    if credits > config.max_credits_per_tool_call:
+        raise ValueError(
+            f"{tool_name} would use {credits} credits, exceeding per-call limit {config.max_credits_per_tool_call}"
+        )
+    if cache_manager_getter is None:
+        raise ValueError("cache manager is required for credit accounting")
+
+    cache_manager = cache_manager_getter()
+    session_credits = cache_manager.get_session_credits_used(session_id)
+    if session_credits + credits > config.max_credits_per_session:
+        raise ValueError(
+            f"{tool_name} would use {credits} credits, exceeding session limit "
+            f"{config.max_credits_per_session} with {session_credits} already used"
+        )
+
+    response = api_call(endpoint, payload)
+    cache_manager.record_session_credits(session_id, credits)
+    cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=credits)
+    return response, credits
 
 
 def _validate_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> None:
@@ -240,6 +330,23 @@ def _validate_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> None:
 
     for name, value in arguments.items():
         _validate_argument_value(name, value, properties[name])
+
+
+def _validate_runtime_limits(tool_name: str, arguments: dict[str, Any], config: Config) -> None:
+    limit = arguments.get("limit")
+    if tool_name in {"search_issuers", "list_documents", "list_news"} and isinstance(limit, int):
+        if limit > config.max_list_limit:
+            raise ValueError(f"limit must be less than or equal to {config.max_list_limit}")
+
+    top_k = arguments.get("top_k")
+    if tool_name in {"search_documents", "search_news"} and isinstance(top_k, int):
+        if top_k > config.max_search_top_k:
+            raise ValueError(f"top_k must be less than or equal to {config.max_search_top_k}")
+
+    section_ids = arguments.get("section_ids")
+    if tool_name == "get_document_content" and isinstance(section_ids, list):
+        if len(section_ids) > config.max_sections_per_content_call:
+            raise ValueError(f"section_ids must contain at most {config.max_sections_per_content_call} items")
 
 
 def _has_present_value(arguments: dict[str, Any], name: str) -> bool:

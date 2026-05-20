@@ -243,6 +243,34 @@ class CacheManager:
                 (tool_name, endpoint, int(cache_hit), credits_used, _now_iso()),
             )
 
+    def record_session_credits(self, session_id: str, credits: int) -> None:
+        now = _now_iso()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO credit_sessions (session_id, credits_used, started_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    credits_used = credit_sessions.credits_used + excluded.credits_used,
+                    updated_at = excluded.updated_at
+                """,
+                (session_id, credits, now, now),
+            )
+
+    def get_session_credits_used(self, session_id: str) -> int:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT credits_used
+                FROM credit_sessions
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return 0
+        return int(row["credits_used"])
+
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.db_path)

@@ -291,6 +291,8 @@ class ToolResponseTests(unittest.TestCase):
                         "cached": True,
                     }
                 ],
+                "max_characters": 8000,
+                "character_limit_reached": False,
                 "cache_hit": True,
             },
         )
@@ -330,6 +332,40 @@ class ToolResponseTests(unittest.TestCase):
                 "cached": False,
             },
         )
+
+    def test_content_response_applies_character_limit_across_sections(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {
+                        "section_id": "sec_1",
+                        "character_count": 4,
+                        "content": "abcd",
+                    },
+                    "momonga://documents/doc_123/sections/sec_1",
+                ),
+                (
+                    {
+                        "section_id": "sec_2",
+                        "character_count": 4,
+                        "content": "efgh",
+                    },
+                    "momonga://documents/doc_123/sections/sec_2",
+                ),
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+            max_chars=6,
+            offset=0,
+        )
+
+        self.assertEqual(response["content_sections"][0]["content"], "abcd")
+        self.assertEqual(response["content_sections"][1]["content"], "ef")
+        self.assertTrue(response["content_sections"][1]["truncated"])
+        self.assertEqual(response["max_characters"], 6)
+        self.assertTrue(response["character_limit_reached"])
 
     def test_toc_response_keeps_only_toc_fields(self) -> None:
         response = get_document_toc_response(

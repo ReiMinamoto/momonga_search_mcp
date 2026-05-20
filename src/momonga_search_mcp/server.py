@@ -7,6 +7,7 @@ import json
 import logging
 import sys
 from typing import Any, TextIO
+from uuid import uuid4
 
 from dotenv import load_dotenv
 
@@ -39,6 +40,7 @@ class StdioMCPServer:
         self.output_stream = sys.stdout if output_stream is None else output_stream
         self.api_client = MomongaApiClient(config) if api_client is None else api_client
         self.cache_manager = cache_manager
+        self.session_id = uuid4().hex
 
     def serve_forever(self) -> None:
         logger.info(
@@ -92,7 +94,13 @@ class StdioMCPServer:
             return {
                 "jsonrpc": JSONRPC_VERSION,
                 "id": request_id,
-                "result": call_tool(self.api_client, message.get("params"), cache_manager_getter=self._cache_manager),
+                "result": call_tool(
+                    self.api_client,
+                    message.get("params"),
+                    cache_manager_getter=self._cache_manager,
+                    config=self.config,
+                    session_id=self.session_id,
+                ),
             }
         if method == "resources/list":
             return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"resources": []}}
