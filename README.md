@@ -12,6 +12,7 @@ Momonga Search APIをMCP経由で使うためのstdioサーバーです。
 - Server Instructions、Skill風Resources、Prompts、Helper Toolsで調査workflowを案内します。
 - `skill://index.json` と用途別Skill Resourceを提供します。
 - 本文、page image、original fileの取得はcredit、文字数、section数、件数の上限で制御します。
+- `get_document_content` は section ごとに最大 8000 文字を返します。続きは `next_offset` と同じ単一 `section_id` で取得します。
 - 画像・元ファイル・大量取得は明示フラグを要求します。
 - 実質不変な取得済みresourceだけをローカルに保存し、再取得時はcacheを優先します。
 - ローカル保存された情報は `momonga://...` URIで参照できるようにします。
@@ -56,8 +57,6 @@ Prompts:
 | `MOMONGA_MCP_LOG_LEVEL` | いいえ | `INFO` | ログレベルです。`DEBUG`、`INFO`、`WARNING`、`ERROR` などを指定できます。ログはstderrに出力します。 |
 | `MOMONGA_MCP_MAX_CREDITS_PER_TOOL_CALL` | いいえ | `8` | tool呼び出し1回あたりの最大credit消費量です。 |
 | `MOMONGA_MCP_MAX_CREDITS_PER_SESSION` | いいえ | `30` | サーバーセッション単位の最大credit消費量です。 |
-| `MOMONGA_MCP_MAX_SECTIONS_PER_CONTENT_CALL` | いいえ | `3` | 本文取得1回あたりの最大section数です。 |
-| `MOMONGA_MCP_MAX_CHARACTERS_PER_CONTENT_CALL` | いいえ | `30000` | 本文取得1回あたりの最大文字数です。 |
 | `MOMONGA_MCP_MAX_PAGE_IMAGES_PER_CALL` | いいえ | `3` | page image取得1回あたりの最大件数です。 |
 | `MOMONGA_MCP_MAX_ORIGINAL_FILES_PER_CALL` | いいえ | `1` | original file取得1回あたりの最大件数です。 |
 

@@ -100,6 +100,8 @@ def get_document_content_response(
     cache_hit: bool,
     cached_sections: bool,
     return_content: bool,
+    max_chars: int,
+    offset: int,
 ) -> dict[str, Any]:
     return {
         "ok": True,
@@ -110,6 +112,8 @@ def get_document_content_response(
                 resource_uri=resource_uri,
                 cached=cached_sections,
                 return_content=return_content,
+                max_chars=max_chars,
+                offset=offset,
             )
             for section, resource_uri in content_sections
         ],
@@ -123,9 +127,21 @@ def _content_section_response(
     resource_uri: str,
     cached: bool,
     return_content: bool,
+    max_chars: int,
+    offset: int,
 ) -> dict[str, Any]:
     fields = CONTENT_SECTION_FIELDS if return_content else tuple(field for field in CONTENT_SECTION_FIELDS if field != "content")
     response = _pick(section, fields)
+    if return_content:
+        content = response.get("content")
+        if isinstance(content, str):
+            content_slice = content[offset : offset + max_chars]
+            response["content"] = content_slice
+            next_offset = offset + len(content_slice)
+            response["truncated"] = next_offset < len(content)
+            response["offset"] = offset
+            if response["truncated"]:
+                response["next_offset"] = next_offset
     response["resource_uri"] = resource_uri
     response["cached"] = cached
     return response

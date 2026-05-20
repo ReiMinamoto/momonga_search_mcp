@@ -20,7 +20,7 @@ class ToolHandlerTests(unittest.TestCase):
             ("list_document_originals", {"document_id": "doc_123"}, "/documents/doc_123/originals", None),
             (
                 "list_documents",
-                {"security_codes": ["8058"], "limit": 2, "ignored": "x"},
+                {"security_codes": ["8058"], "limit": 2},
                 "/documents",
                 {"security_codes": ["8058"], "limit": 2},
             ),
@@ -29,6 +29,19 @@ class ToolHandlerTests(unittest.TestCase):
         for name, arguments, expected_path, expected_params in calls:
             call_tool(api_client, {"name": name, "arguments": arguments})
             self.assertEqual(api_client.calls[-1], ("GET", expected_path, expected_params))
+
+    def test_call_tool_quotes_document_id_path_components(self) -> None:
+        api_client = FakeApiClient()
+        document_id = "doc/with space"
+        calls = [
+            ("get_document_metadata", "/documents/doc%2Fwith%20space"),
+            ("list_document_page_images", "/documents/doc%2Fwith%20space/page-images"),
+            ("list_document_originals", "/documents/doc%2Fwith%20space/originals"),
+        ]
+
+        for name, expected_path in calls:
+            call_tool(api_client, {"name": name, "arguments": {"document_id": document_id}})
+            self.assertEqual(api_client.calls[-1], ("GET", expected_path, None))
 
     def test_call_tool_returns_trimmed_success_response(self) -> None:
         api_client = FakeApiClient()
@@ -65,7 +78,7 @@ class ToolHandlerTests(unittest.TestCase):
         calls = [
             (
                 "search_documents",
-                {"query": "価格転嫁", "top_k": 3, "include_snippet": True, "ignored": "x"},
+                {"query": "価格転嫁", "top_k": 3, "include_snippet": True},
                 "/search/documents",
                 {"query": "価格転嫁", "top_k": 3, "include_snippet": True},
             ),
@@ -109,6 +122,20 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(payload["resource_uri"], "momonga://documents/doc_123/toc")
         self.assertNotIn("title", payload)
         self.assertIsNotNone(cached_toc)
+
+    def test_get_document_toc_quotes_document_id_path_component(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {"document_id": "doc/with space", "toc": []}
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            call_tool(
+                api_client,
+                {"name": "get_document_toc", "arguments": {"document_id": "doc/with space"}},
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+        self.assertEqual(api_client.calls, [("GET", "/documents/doc%2Fwith%20space/toc", None)])
 
     def test_get_document_toc_returns_cache_hit_without_api_call(self) -> None:
         api_client = FakeApiClient()
@@ -168,6 +195,20 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertNotIn("content", payload["content_sections"][0])
         self.assertIsNotNone(cached_section)
 
+    def test_get_document_content_quotes_document_id_path_component(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {"document_id": "doc/with space", "content_sections": []}
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            call_tool(
+                api_client,
+                {"name": "get_document_content", "arguments": {"document_id": "doc/with space", "section_ids": ["sec_1"]}},
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+        self.assertEqual(api_client.calls, [("GET", "/documents/doc%2Fwith%20space/content", {"sections": ["sec_1"]})])
+
     def test_get_document_content_returns_cache_hit_without_api_call(self) -> None:
         api_client = FakeApiClient()
         with TemporaryDirectory() as temp_dir:
@@ -203,15 +244,61 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertNotIn("content", payload["content_sections"][0])
 
     def test_cache_backed_tools_require_cache_manager(self) -> None:
-        for tool_name in ("get_document_toc", "get_document_content"):
-            response = call_tool(FakeApiClient(), {"name": tool_name, "arguments": {"document_id": "doc_123"}})
+        calls = [
+            ("get_document_toc", {"document_id": "doc_123"}),
+            ("get_document_content", {"document_id": "doc_123", "section_ids": ["sec_1"]}),
+        ]
+        for tool_name, arguments in calls:
+            response = call_tool(FakeApiClient(), {"name": tool_name, "arguments": arguments})
             payload = json.loads(response["content"][0]["text"])
 
             self.assertTrue(response["isError"])
             self.assertEqual(payload["error"]["code"], "invalid_request")
             self.assertIsNone(payload["error"]["status"])
             self.assertIn("cache manager is required", payload["error"]["message"])
-            self.assertEqual(payload["error"]["next_action"], "Fix the tool input and retry the request.")
+        self.assertEqual(payload["error"]["next_action"], "Fix the tool input and retry the request.")
+
+    def test_get_document_content_requires_section_ids(self) -> None:
+        response = call_tool(FakeApiClient(), {"name": "get_document_content", "arguments": {"document_id": "doc_123"}})
+        payload = json.loads(response["content"][0]["text"])
+
+        self.assertTrue(response["isError"])
+        self.assertEqual(payload["error"]["code"], "invalid_request")
+        self.assertEqual(payload["error"]["message"], "section_ids is required")
+
+    def test_get_document_content_validates_offset_and_section_count(self) -> None:
+        invalid_calls = [
+            ({"document_id": "doc_123", "section_ids": ["sec_1"], "offset": -1}, "offset must be greater than or equal to 0"),
+            ({"document_id": "doc_123", "section_ids": ["sec_1"] * 6}, "section_ids must contain at most 5 items"),
+            (
+                {"document_id": "doc_123", "section_ids": ["sec_1", "sec_2"], "offset": 100},
+                "offset can only be used with exactly one section_id",
+            ),
+        ]
+
+        for arguments, expected_message in invalid_calls:
+            response = call_tool(FakeApiClient(), {"name": "get_document_content", "arguments": arguments})
+            payload = json.loads(response["content"][0]["text"])
+
+            self.assertTrue(response["isError"])
+            self.assertEqual(payload["error"]["message"], expected_message)
+
+    def test_call_tool_rejects_unknown_arguments(self) -> None:
+        response = call_tool(
+            FakeApiClient(),
+            {"name": "list_documents", "arguments": {"security_codes": ["8058"], "ignored": "x"}},
+        )
+        payload = json.loads(response["content"][0]["text"])
+
+        self.assertTrue(response["isError"])
+        self.assertEqual(payload["error"]["message"], "unknown arguments: ignored")
+
+    def test_call_tool_validates_any_of_arguments(self) -> None:
+        response = call_tool(FakeApiClient(), {"name": "list_documents", "arguments": {"limit": 10}})
+        payload = json.loads(response["content"][0]["text"])
+
+        self.assertTrue(response["isError"])
+        self.assertEqual(payload["error"]["message"], "one of these argument sets is required: security_codes or timeline_since")
 
     def test_call_tool_returns_model_facing_api_error(self) -> None:
         api_client = FakeApiClient()

@@ -130,7 +130,10 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "get_document_content": {
-        "description": "Retrieve document content. Only use after checking content_status and toc.",
+        "description": (
+            "Retrieve selected document sections. Only use after get_document_toc or search_documents returns section IDs. "
+            "Returns at most 8000 characters per section; use next_offset with the same single section_id to continue."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -138,14 +141,25 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
                 "section_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Section IDs from get_document_toc. Omit only when full document content is needed.",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "description": "Required section IDs from get_document_toc or search_documents.",
+                },
+                "offset": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": (
+                        "Character offset for continuing a truncated section. "
+                        "Omit unless a previous response returned next_offset. "
+                        "When offset is greater than 0, pass exactly one section_id."
+                    ),
                 },
                 "return_content": {
                     "type": "boolean",
                     "description": "Whether to include retrieved content in the tool response. Defaults to true.",
                 },
             },
-            "required": ["document_id"],
+            "required": ["document_id", "section_ids"],
             "additionalProperties": False,
         },
     },

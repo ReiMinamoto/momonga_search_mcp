@@ -273,6 +273,8 @@ class ToolResponseTests(unittest.TestCase):
             cache_hit=True,
             cached_sections=True,
             return_content=False,
+            max_chars=8000,
+            offset=0,
         )
 
         self.assertEqual(
@@ -290,6 +292,42 @@ class ToolResponseTests(unittest.TestCase):
                     }
                 ],
                 "cache_hit": True,
+            },
+        )
+
+    def test_content_response_truncates_content_with_next_offset(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {
+                        "section_id": "sec_1",
+                        "section_title": "Risk",
+                        "character_count": 10,
+                        "content": "0123456789",
+                    },
+                    "momonga://documents/doc_123/sections/sec_1",
+                )
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+            max_chars=4,
+            offset=3,
+        )
+
+        self.assertEqual(
+            response["content_sections"][0],
+            {
+                "section_id": "sec_1",
+                "section_title": "Risk",
+                "character_count": 10,
+                "content": "3456",
+                "truncated": True,
+                "offset": 3,
+                "next_offset": 7,
+                "resource_uri": "momonga://documents/doc_123/sections/sec_1",
+                "cached": False,
             },
         )
 

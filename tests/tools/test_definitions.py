@@ -46,6 +46,16 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertEqual(schemas["search_documents"]["properties"]["top_k"]["maximum"], 50)
         self.assertEqual(schemas["search_news"]["properties"]["top_k"]["maximum"], 50)
 
+    def test_get_document_content_schema_requires_bounded_sections_and_offset(self) -> None:
+        schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
+        schema = schemas["get_document_content"]
+
+        self.assertEqual(schema["required"], ["document_id", "section_ids"])
+        self.assertEqual(schema["properties"]["section_ids"]["minItems"], 1)
+        self.assertEqual(schema["properties"]["section_ids"]["maxItems"], 5)
+        self.assertNotIn("max_chars", schema["properties"])
+        self.assertEqual(schema["properties"]["offset"]["minimum"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

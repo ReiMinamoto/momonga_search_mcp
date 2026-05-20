@@ -289,6 +289,7 @@ API response には document metadata も含まれますが、`get_document_toc`
 ## `get_document_content`
 
 指定した section の本文を取得します。API の `content_sections` を MCP response でも使います。
+`section_ids` は必須で、全文取得はこの tool では行いません。
 
 対応エンドポイント: `GET /v1/documents/{document_id}/content`
 
@@ -296,7 +297,8 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 | Tool parameter | API parameter | 理由 |
 | --- | --- | --- |
-| `section_ids` | `sections` | MCP tool 側では ID 配列であることを明確にするため。API 呼び出し時に `sections` query parameter に変換します。 |
+| `section_ids` | `sections` | 必須。1〜5件。MCP tool 側では ID 配列であることを明確にするため。API 呼び出し時に `sections` query parameter に変換します。 |
+| `offset` | なし | `truncated=true` の section の続き取得に使う文字 offset。通常は省略します。指定時は `section_ids` を1件だけ渡します。 |
 | `return_content` | なし | MCP response に本文を含めるかを制御する MCP 専用 parameter。API から取得した本文は、返却有無に関係なく cache に保存します。 |
 
 ### 返り値
@@ -311,6 +313,8 @@ API response には document metadata も含まれますが、`get_document_toc`
       "section_title": "Risk Factors",
       "character_count": 1200,
       "content": "Risk Factors...",
+      "truncated": false,
+      "offset": 0,
       "resource_uri": "momonga://documents/doc_123/sections/sec_1",
       "cached": false
     }
@@ -320,6 +324,8 @@ API response には document metadata も含まれますが、`get_document_toc`
 ```
 
 `return_content=false` の場合、`content_sections[].content` は返しません。取得した本文は返却有無に関係なく cache に保存します。
+MCP response に含める本文は、section ごとにサーバ側固定上限の 8000 文字で切り詰めます。
+`truncated=true` の場合は `next_offset` を返します。続きは同じ `document_id` / `section_ids` と `offset=next_offset` で取得します。
 
 ### 残す field
 
@@ -330,6 +336,9 @@ API response には document metadata も含まれますが、`get_document_toc`
 | `content_sections[].section_title` | 取得した section の表示名。 |
 | `content_sections[].character_count` | 本文量の確認。 |
 | `content_sections[].content` | `return_content=true` の場合の本文。 |
+| `content_sections[].truncated` | `content` がサーバ側固定上限で切り詰められたかどうか。 |
+| `content_sections[].offset` | 返却した `content` の開始位置。 |
+| `content_sections[].next_offset` | `truncated=true` の場合、続き取得に使う offset。 |
 | `content_sections[].resource_uri` | cache 済み section を指すローカル resource ID。 |
 | `content_sections[].cached` | その section が今回 cache 由来かどうか。 |
 | `cache_hit` | tool call 全体が API call を skip したかどうか。 |
