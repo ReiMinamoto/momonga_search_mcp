@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
 
-from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
+from momonga_search_mcp.api import JsonApiResponse, MomongaApiClient, MomongaApiError, api_error_response
 from momonga_search_mcp.cache import CachedResource, CacheManager
 from momonga_search_mcp.config import Config
 from momonga_search_mcp.skills import get_skill, list_skills
@@ -33,6 +33,7 @@ CREDIT_COSTS = {
     "get_document_page_image": 1,
     "get_document_original": 8,
 }
+CONTENT_CREDIT_COSTS = {2, 4, 8}
 SKILL_INDEX_GUARDED_TOOLS = {
     "search_issuers",
     "list_documents",
@@ -301,15 +302,17 @@ def _call_get_document_content(
 
     params = {"sections": section_ids}
     endpoint = f"/documents/{_quote_path_component(document_id)}/content"
-    payload, credits_used = _call_credit_api(
-        api_client.get,
+    api_response, credits_used = _call_credit_json_api(
+        api_client.get_with_usage,
         endpoint,
         params,
         tool_name="get_document_content",
         config=config,
         cache_manager_getter=cache_manager_getter,
         session_id=session_id,
+        valid_actual_credits=CONTENT_CREDIT_COSTS,
     )
+    payload = api_response.payload
     content_sections = payload.get("content_sections")
     section_resources = []
     if isinstance(content_sections, list):
@@ -530,6 +533,42 @@ def _call_credit_api(
     cache_manager.record_session_credits(session_id, credits)
     cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=credits)
     return response, credits
+
+
+def _call_credit_json_api(
+    api_call: Callable[..., JsonApiResponse],
+    endpoint: str,
+    payload: dict[str, Any],
+    *,
+    tool_name: str,
+    config: Config,
+    cache_manager_getter: Callable[[], CacheManager] | None,
+    session_id: str,
+    valid_actual_credits: set[int] | None = None,
+) -> tuple[JsonApiResponse, int]:
+    max_credits = CREDIT_COSTS[tool_name]
+    if max_credits > config.max_credits_per_tool_call:
+        raise ValueError(
+            f"{tool_name} would use {max_credits} credits, exceeding per-call limit {config.max_credits_per_tool_call}"
+        )
+    if cache_manager_getter is None:
+        raise ToolSetupError("cache manager is unavailable; credit accounting cannot proceed without MCP cache_dir")
+
+    cache_manager = cache_manager_getter()
+    session_credits = cache_manager.get_session_credits_used(session_id)
+    if session_credits + max_credits > config.max_credits_per_session:
+        raise ValueError(
+            f"{tool_name} would use up to {max_credits} credits, exceeding session limit "
+            f"{config.max_credits_per_session} with {session_credits} already used"
+        )
+
+    response = api_call(endpoint, payload)
+    actual_credits = response.inferred_compute_credits
+    if actual_credits is None or (valid_actual_credits is not None and actual_credits not in valid_actual_credits):
+        actual_credits = max_credits
+    cache_manager.record_session_credits(session_id, actual_credits)
+    cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=actual_credits)
+    return response, actual_credits
 
 
 def _call_credit_binary_api(

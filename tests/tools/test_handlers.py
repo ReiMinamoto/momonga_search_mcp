@@ -208,6 +208,51 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertNotIn("content", payload["content_sections"][0])
         self.assertIsNotNone(cached_section)
 
+    def test_get_document_content_records_inferred_actual_credits(self) -> None:
+        api_client = FakeApiClient()
+        api_client.inferred_compute_credits = 2
+        api_client.response = {
+            "document_id": "doc_123",
+            "content_sections": [{"section_id": "sec_1", "content": "body"}],
+        }
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            response = call_tool(
+                api_client,
+                {"name": "get_document_content", "arguments": {"document_id": "doc_123", "section_ids": ["sec_1"]}},
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+            payload = response["structuredContent"]
+            session_credits = cache_manager.get_session_credits_used("default")
+
+        self.assertEqual(payload["credits_used"], 2)
+        self.assertEqual(payload["session_credits_used"], 2)
+        self.assertEqual(session_credits, 2)
+
+    def test_get_document_content_falls_back_to_max_credits_when_actual_unavailable(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {
+            "document_id": "doc_123",
+            "content_sections": [{"section_id": "sec_1", "content": "body"}],
+        }
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            response = call_tool(
+                api_client,
+                {"name": "get_document_content", "arguments": {"document_id": "doc_123", "section_ids": ["sec_1"]}},
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+            payload = response["structuredContent"]
+            session_credits = cache_manager.get_session_credits_used("default")
+
+        self.assertEqual(payload["credits_used"], 8)
+        self.assertEqual(payload["session_credits_used"], 8)
+        self.assertEqual(session_credits, 8)
+
     def test_get_document_content_quotes_document_id_path_component(self) -> None:
         api_client = FakeApiClient()
         api_client.response = {"document_id": "doc/with space", "content_sections": []}

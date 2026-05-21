@@ -19,11 +19,13 @@ MCP側ではcredit消費を保守的に事前会計します。cache hitは `cre
 | `list_news` | API callごとに1 credit |
 | `search_documents` | API callごとに1 credit |
 | `search_news` | API callごとに1 credit |
-| `get_document_content` | API callごとに最大8 creditsとして会計 |
+| `get_document_content` | API callごとに2 / 4 / 8 credits。実消費を推定できない場合は最大8 creditsとして会計 |
 | `get_document_page_image` | cache missごとに1 credit |
 | `get_document_original` | cache missごとに8 credits |
 
-`get_document_content` はMomonga Search API側の実消費が本文量で 2 / 4 / 8 credits に変わる場合でも、このMCPでは最大値の8 creditsとしてsession limitを判定します。APIレスポンスまたはヘッダーから実消費creditを安定して取得できるようになった場合は、実値会計へ変更する予定です。
+`get_document_content` はMomonga Search API側の実消費が本文量で 2 / 4 / 8 credits に変わります。MCP側では、APIレスポンスヘッダーの `x-quota-compute-remaining` 差分から実消費を推定できる場合は `credits_used` と session 累計に実値を記録します。直接の実消費fieldがないため、差分が取れない場合や 2 / 4 / 8 以外の差分になった場合は最大値の8 creditsとして保守的に会計します。
+
+session limit / per-call limit の事前判定は、API call 前に実消費が確定しないため、引き続き最大8 creditsで行います。
 
 ## キャッシュ方針
 

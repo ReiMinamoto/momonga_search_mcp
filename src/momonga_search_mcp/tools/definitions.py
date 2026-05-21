@@ -239,7 +239,7 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
     "get_document_content": {
         "description": (
             "Retrieve selected document sections. Only use after get_document_toc or search_documents returns section IDs. "
-            "Consumes up to 8 credits per API call; cache hits consume 0 credits. "
+            "Consumes 2, 4, or 8 credits per API call when usage can be inferred; otherwise accounts up to 8 credits. Cache hits consume 0 credits. "
             "Returns at most the MCP runtime character limit per call; use next_offset with the same single section_id to continue."
         ),
         "inputSchema": {

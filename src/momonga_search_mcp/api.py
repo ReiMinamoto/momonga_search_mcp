@@ -46,15 +46,26 @@ class BinaryApiResponse:
     filename: str | None = None
 
 
+@dataclass(frozen=True)
+class JsonApiResponse:
+    payload: dict[str, Any]
+    headers: dict[str, str]
+    inferred_compute_credits: int | None = None
+
+
 class MomongaApiClient:
     def __init__(self, config: Config, transport: Transport | None = None) -> None:
         self.base_url = config.base_url.rstrip("/")
         self.api_key = config.api_key
         self.timeout_seconds = config.api_timeout_seconds
         self._transport = _default_transport if transport is None else transport
+        self._last_quota_compute_remaining: int | None = None
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.request("GET", path, params=params)
+
+    def get_with_usage(self, path: str, params: dict[str, Any] | None = None) -> JsonApiResponse:
+        return self.request_json_response("GET", path, params=params)
 
     def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.request("POST", path, payload=payload)
@@ -70,6 +81,16 @@ class MomongaApiClient:
         params: dict[str, Any] | None = None,
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        return self.request_json_response(method, path, params=params, payload=payload).payload
+
+    def request_json_response(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> JsonApiResponse:
         url = self._url(path, params)
         data = None
         headers = {
@@ -84,7 +105,31 @@ class MomongaApiClient:
         request = Request(url, data=data, headers=headers, method=method.upper())
         try:
             with self._transport(request, self.timeout_seconds) as response:
-                return _decode_json(response.read())
+                raw_headers = getattr(response, "headers", None)
+                response_headers = (
+                    {str(key).lower(): str(value).strip() for key, value in raw_headers.items() if str(value).strip()}
+                    if hasattr(raw_headers, "items")
+                    else {}
+                )
+                compute_remaining = response_headers.get("x-quota-compute-remaining")
+                current_compute_remaining = (
+                    int(compute_remaining) if compute_remaining and compute_remaining.isdecimal() else None
+                )
+                previous_compute_remaining = self._last_quota_compute_remaining
+                if current_compute_remaining is not None:
+                    self._last_quota_compute_remaining = current_compute_remaining
+                inferred_compute_credits = (
+                    previous_compute_remaining - current_compute_remaining
+                    if previous_compute_remaining is not None
+                    and current_compute_remaining is not None
+                    and current_compute_remaining <= previous_compute_remaining
+                    else None
+                )
+                return JsonApiResponse(
+                    payload=_decode_json(response.read()),
+                    headers=response_headers,
+                    inferred_compute_credits=inferred_compute_credits,
+                )
         except HTTPError as exc:
             raise _api_error_from_http_error(exc) from exc
         except TimeoutError as exc:
@@ -186,6 +231,8 @@ def _header_value(headers: Any, name: str) -> str | None:
     if headers is None:
         return None
     value = headers.get(name)
+    if not isinstance(value, str):
+        value = headers.get(name.lower())
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
