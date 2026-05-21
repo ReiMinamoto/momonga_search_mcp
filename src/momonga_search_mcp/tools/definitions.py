@@ -476,7 +476,6 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
                 "content_sections": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
                 "max_characters": {"type": "integer"},
                 "character_limit_reached": {"type": "boolean"},
-                "next_offset": {"type": "integer"},
                 **RESOURCE_OUTPUT_PROPERTIES,
                 **CREDIT_OUTPUT_PROPERTIES,
             }

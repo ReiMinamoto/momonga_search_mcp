@@ -141,6 +141,17 @@ def get_document_content_response(
     section_responses = []
     character_limit_reached = False
     for section, resource_uri in content_sections:
+        if return_content and remaining_chars <= 0:
+            section_response = _content_section_omitted_response(
+                section,
+                resource_uri=resource_uri,
+                cached=cached_sections,
+                offset=offset,
+            )
+            character_limit_reached = True
+            section_responses.append(section_response)
+            continue
+
         section_response = _content_section_response(
             section,
             resource_uri=resource_uri,
@@ -188,6 +199,22 @@ def _content_section_response(
             response["offset"] = offset
             if response["truncated"]:
                 response["next_offset"] = next_offset
+    response["resource_uri"] = resource_uri
+    response["cached"] = cached
+    return response
+
+
+def _content_section_omitted_response(
+    section: dict[str, Any],
+    *,
+    resource_uri: str,
+    cached: bool,
+    offset: int,
+) -> dict[str, Any]:
+    response = _pick(section, tuple(field for field in CONTENT_SECTION_FIELDS if field != "content"))
+    response["content_omitted"] = True
+    response["omitted_reason"] = "character_limit_reached"
+    response["offset"] = offset
     response["resource_uri"] = resource_uri
     response["cached"] = cached
     return response

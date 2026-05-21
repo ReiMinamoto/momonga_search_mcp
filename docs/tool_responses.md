@@ -486,7 +486,8 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 `return_content=false` の場合、`content_sections[].content` は返しません。取得した本文は返却有無に関係なく cache に保存します。
 MCP response に含める本文は、サーバ側固定上限の 30000 文字で切り詰めます。
-`truncated=true` の場合は `next_offset` を返します。続きは同じ `document_id` / `section_ids` と `offset=next_offset` で取得します。
+`content_sections[].truncated=true` の場合は、その section に `next_offset` を返します。続きは同じ `document_id`、同じ単一 `section_id`、`offset=content_sections[].next_offset` で取得します。
+複数 section 取得時に tool call 全体の文字数上限へ達し、後続 section の本文を開始できない場合、その section は `content_omitted=true` / `omitted_reason=character_limit_reached` になり、`truncated` と `next_offset` は返しません。その section を読むには、同じ `document_id` とその単一 `section_id` で改めて取得します。
 `credits_used` は、APIレスポンスヘッダーの `x-quota-compute-remaining` 差分から 2 / 4 / 8 credits の実消費を推定できる場合は実値です。差分が取れない場合や想定外の差分になった場合は最大8 creditsとして保守的に会計します。
 
 ### 残す field
@@ -501,6 +502,8 @@ MCP response に含める本文は、サーバ側固定上限の 30000 文字で
 | `content_sections[].truncated` | `content` がサーバ側固定上限で切り詰められたかどうか。 |
 | `content_sections[].offset` | 返却した `content` の開始位置。 |
 | `content_sections[].next_offset` | `truncated=true` の場合、続き取得に使う offset。 |
+| `content_sections[].content_omitted` | tool call 全体の文字数上限により、この section の本文を返さなかったかどうか。 |
+| `content_sections[].omitted_reason` | `content_omitted=true` の理由。 |
 | `content_sections[].resource_uri` | cache 済み section を指すローカル resource ID。 |
 | `content_sections[].cached` | その section が今回 cache 由来かどうか。 |
 | `max_characters` | この tool call で返す本文文字数の MCP 側上限。 |

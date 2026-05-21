@@ -33,8 +33,9 @@ Retrieve only the document sections needed for the task while preserving `resour
    - The MCP response is capped by the runtime character limit, default 30,000 characters per call (overridable via `MOMONGA_MCP_MAX_CHARACTERS_PER_CONTENT_CALL`).
    - Use `offset` only to continue a single truncated section.
    - Do not pass multiple section IDs with `offset`.
-   - When a section response has `truncated=true`, continue with `offset=next_offset` and the same single `section_id`.
-   - If multiple sections in the same response are `truncated=true`, continue them one at a time (first the section the user needs most), each in its own follow-up call with a single `section_id`.
+   - When a section response has `truncated=true`, continue with that section's `next_offset` and the same single `section_id`.
+   - If a later section has `content_omitted=true` with `omitted_reason=character_limit_reached`, retrieve that section in a new call with that single `section_id`; do not treat it as a continuation from `next_offset`.
+   - If multiple sections in the same response are `truncated=true` or `content_omitted=true`, continue them one at a time (first the section the user needs most), each in its own follow-up call with a single `section_id`.
    - Use `return_content=false` when the content should be stored and referenced later but not injected into the current response.
    - Retrieved sections are stored locally even when `return_content=false`.
 
@@ -45,7 +46,7 @@ Retrieve only the document sections needed for the task while preserving `resour
    - A cached response is authoritative for reuse; do not call again just to refresh unless the user explicitly asks.
 
 5. Report limits clearly.
-   - If a section is too large or truncated, tell the user which section was partial and whether `next_offset` is available.
+   - If a section is too large, truncated, or omitted by the call limit, tell the user which section was partial or omitted and whether a section-level `next_offset` is available.
    - If a limit prevents retrieval, reduce section count or ask for a narrower target.
 
 6. Switch to `evidence-answering` for the final response.

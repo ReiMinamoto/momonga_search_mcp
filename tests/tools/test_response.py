@@ -367,6 +367,52 @@ class ToolResponseTests(unittest.TestCase):
         self.assertEqual(response["max_characters"], 6)
         self.assertTrue(response["character_limit_reached"])
 
+    def test_content_response_marks_unstarted_sections_omitted_after_character_limit(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {
+                        "section_id": "sec_1",
+                        "character_count": 4,
+                        "content": "abcd",
+                    },
+                    "momonga://documents/doc_123/sections/sec_1",
+                ),
+                (
+                    {
+                        "section_id": "sec_2",
+                        "character_count": 4,
+                        "content": "efgh",
+                    },
+                    "momonga://documents/doc_123/sections/sec_2",
+                ),
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+            max_chars=4,
+            offset=0,
+        )
+
+        omitted_section = response["content_sections"][1]
+        self.assertEqual(
+            omitted_section,
+            {
+                "section_id": "sec_2",
+                "character_count": 4,
+                "content_omitted": True,
+                "omitted_reason": "character_limit_reached",
+                "offset": 0,
+                "resource_uri": "momonga://documents/doc_123/sections/sec_2",
+                "cached": False,
+            },
+        )
+        self.assertNotIn("content", omitted_section)
+        self.assertNotIn("truncated", omitted_section)
+        self.assertNotIn("next_offset", omitted_section)
+        self.assertTrue(response["character_limit_reached"])
+
     def test_toc_response_keeps_only_toc_fields(self) -> None:
         response = get_document_toc_response(
             {
