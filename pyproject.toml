@@ -18,6 +18,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+momonga_search_mcp = ["skill_resources/index.json", "skill_resources/skills/*.md"]
+
 [tool.ruff]
 line-length = 130
 indent-width = 4

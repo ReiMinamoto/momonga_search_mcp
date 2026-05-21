@@ -15,6 +15,8 @@ from momonga_search_mcp.api import MomongaApiClient
 from momonga_search_mcp.cache import CacheManager
 from momonga_search_mcp.config import Config, ConfigError
 from momonga_search_mcp.logging import configure_logging
+from momonga_search_mcp.prompts import get_prompt, prompt_definitions
+from momonga_search_mcp.skills import read_skill_resource, skill_resources
 from momonga_search_mcp.tools.definitions import tool_definitions
 from momonga_search_mcp.tools.handlers import call_tool
 
@@ -41,6 +43,7 @@ class StdioMCPServer:
         self.api_client = MomongaApiClient(config) if api_client is None else api_client
         self.cache_manager = cache_manager
         self.session_id = uuid4().hex
+        self.skill_index_seen = False
 
     def serve_forever(self) -> None:
         logger.info(
@@ -91,21 +94,33 @@ class StdioMCPServer:
         if method == "tools/list":
             return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"tools": tool_definitions()}}
         if method == "tools/call":
+            params = message.get("params")
+            result = call_tool(
+                self.api_client,
+                params,
+                cache_manager_getter=self._cache_manager,
+                config=self.config,
+                session_id=self.session_id,
+                skill_index_seen=self.skill_index_seen,
+            )
+            if isinstance(params, dict) and params.get("name") in {"list_skills", "get_skill"} and not result.get("isError"):
+                self.skill_index_seen = True
             return {
                 "jsonrpc": JSONRPC_VERSION,
                 "id": request_id,
-                "result": call_tool(
-                    self.api_client,
-                    message.get("params"),
-                    cache_manager_getter=self._cache_manager,
-                    config=self.config,
-                    session_id=self.session_id,
-                ),
+                "result": result,
             }
         if method == "resources/list":
-            return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"resources": []}}
+            return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"resources": skill_resources()}}
+        if method == "resources/read":
+            return self._read_resource_response(request_id, message.get("params"))
         if method == "prompts/list":
-            return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"prompts": []}}
+            return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"prompts": prompt_definitions()}}
+        if method == "prompts/get":
+            response = self._get_prompt_response(request_id, message.get("params"))
+            if "error" not in response:
+                self.skill_index_seen = True
+            return response
 
         return _error_response(request_id, -32601, f"Method not found: {method}")
 
@@ -123,14 +138,62 @@ class StdioMCPServer:
             },
             "capabilities": {
                 "tools": {"listChanged": False},
-                "resources": {},
-                "prompts": {},
+                "resources": {"listChanged": False},
+                "prompts": {"listChanged": False},
             },
             "instructions": (
                 "This MCP server provides Momonga Search API tools and workflow skills. "
-                "Use document tools and news tools separately, and respect MCP-side credit and retrieval limits."
+                "For every substantive research task, first read skill://index.json. If resource reads are unavailable, "
+                "call list_skills as the fallback. Treat skills as the default entry point for supported workflows. "
+                "If the index contains a skill that fits the task, follow that skill and read only its detail resource. "
+                "If the task later enters a more specific workflow, such as known document content retrieval or file "
+                "download, switch to the matching skill and read that skill detail resource before continuing. "
+                "Do not load all skill details by default. If no skill fits the task, compose the available tools directly "
+                "and preserve the same evidence and limit discipline. "
+                "Use document tools and news tools separately. Do not perform integrated document/news ranking in the MVP. "
+                "Before retrieving document content, check content_status, read toc when content_status=ready, inspect "
+                "section_id, heading_path, and character_count, and retrieve only necessary sections. Respect MCP-side "
+                "limits for credits, result count, section count, character count, page images, and original files. "
+                "For page images and original files, never auto-download; require allow_file_download=true and return "
+                "file_path, resource_uri, and metadata only. Always preserve evidence identifiers: document_id, section_id, "
+                "news_id, reference_url, and references[]."
             ),
         }
+
+    def _read_resource_response(self, request_id: Any, params: Any) -> dict[str, Any]:
+        if not isinstance(params, dict) or not isinstance(params.get("uri"), str):
+            return _error_response(request_id, -32602, "resources/read requires uri")
+        uri = params["uri"]
+        try:
+            text, mime_type = read_skill_resource(uri)
+        except ValueError as exc:
+            return _error_response(request_id, -32602, str(exc))
+        self.skill_index_seen = True
+        return {
+            "jsonrpc": JSONRPC_VERSION,
+            "id": request_id,
+            "result": {
+                "contents": [
+                    {
+                        "uri": uri,
+                        "mimeType": mime_type,
+                        "text": text,
+                    }
+                ]
+            },
+        }
+
+    def _get_prompt_response(self, request_id: Any, params: Any) -> dict[str, Any]:
+        if not isinstance(params, dict) or not isinstance(params.get("name"), str):
+            return _error_response(request_id, -32602, "prompts/get requires name")
+        arguments = params.get("arguments", {})
+        if not isinstance(arguments, dict):
+            return _error_response(request_id, -32602, "prompt arguments must be an object")
+        try:
+            result = get_prompt(params["name"], arguments)
+        except ValueError as exc:
+            return _error_response(request_id, -32602, str(exc))
+        return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": result}
 
     def _cache_manager(self) -> CacheManager:
         if self.cache_manager is None:

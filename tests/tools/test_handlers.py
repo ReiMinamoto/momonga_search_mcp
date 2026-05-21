@@ -257,20 +257,29 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertNotIn("internal_extra", payload["content_sections"][0])
         self.assertNotIn("content", payload["content_sections"][0])
 
-    def test_cache_backed_tools_require_cache_manager(self) -> None:
+    def test_cache_backed_tools_report_server_setup_error_when_cache_unavailable(self) -> None:
         calls = [
             ("get_document_toc", {"document_id": "doc_123"}),
             ("get_document_content", {"document_id": "doc_123", "section_ids": ["sec_1"]}),
+            (
+                "get_document_page_image",
+                {"document_id": "doc_123", "page_number": 1, "allow_file_download": True},
+            ),
+            (
+                "get_document_original",
+                {"document_id": "doc_123", "original_id": "pdf", "allow_file_download": True},
+            ),
         ]
         for tool_name, arguments in calls:
             response = call_tool(FakeApiClient(), {"name": tool_name, "arguments": arguments})
             payload = json.loads(response["content"][0]["text"])
 
-            self.assertTrue(response["isError"])
-            self.assertEqual(payload["error"]["code"], "invalid_request")
+            self.assertTrue(response["isError"], msg=tool_name)
+            self.assertEqual(payload["error"]["code"], "server_setup_error", msg=tool_name)
             self.assertIsNone(payload["error"]["status"])
-            self.assertIn("cache manager is required", payload["error"]["message"])
-        self.assertEqual(payload["error"]["next_action"], "Fix the tool input and retry the request.")
+            self.assertIn("cache manager is unavailable", payload["error"]["message"])
+            self.assertIn("Do not retry", payload["error"]["next_action"])
+            self.assertIn("MCP operator", payload["error"]["next_action"])
 
     def test_get_document_content_requires_section_ids(self) -> None:
         response = call_tool(FakeApiClient(), {"name": "get_document_content", "arguments": {"document_id": "doc_123"}})

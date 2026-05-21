@@ -226,7 +226,9 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "search_documents": {
-        "description": "Search document content. Consumes 1 credit per API call. Use short topic terms or evidence-focused questions.",
+        "description": (
+            "Search document content. Consumes 1 credit per API call. Use short topic terms or evidence-focused questions."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -255,7 +257,9 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "search_news": {
-        "description": "Search news statements. Consumes 1 credit per API call. Keep news separate from document search in the MVP.",
+        "description": (
+            "Search news statements. Consumes 1 credit per API call. Keep news separate from document search in the MVP."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -277,9 +281,29 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
     },
 }
 
+SKILL_HELPER_TOOLS: dict[str, dict[str, Any]] = {
+    "list_skills": {
+        "description": "Return the lightweight skill index as a fallback when resource discovery is weak.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
+    "get_skill": {
+        "description": "Return a workflow skill detail resource by skill id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string", "description": "Skill id from skill://index.json or list_skills."}},
+            "required": ["id"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 def tool_definitions() -> list[dict[str, Any]]:
-    tools = {**ZERO_CREDIT_DOCUMENT_TOOLS, **CREDIT_TOOLS}
+    tools = {**ZERO_CREDIT_DOCUMENT_TOOLS, **CREDIT_TOOLS, **SKILL_HELPER_TOOLS}
     return [
         {"name": name, "description": definition["description"], "inputSchema": definition["inputSchema"]}
         for name, definition in tools.items()

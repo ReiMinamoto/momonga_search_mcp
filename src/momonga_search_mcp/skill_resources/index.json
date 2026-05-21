@@ -1,0 +1,46 @@
+{
+  "version": "0.1.3",
+  "description": "Lightweight workflow index for Momonga Search MCP. Read this before substantive research, then load only the matching detail skill. Pick a skill by matching the user's request against each skill's description and triggers (triggers are example phrases that should map to this skill). For tasks spanning multiple domains (e.g. disclosures and news, or research and file download), load each relevant retrieval skill in turn and then evidence-answering. Retrieval skills feed into evidence-answering; do not load evidence-answering first when retrieval has not happened yet.",
+  "skills": [
+    {
+      "id": "document-research",
+      "title": "Document Research",
+      "description": "Research company disclosures, securities reports, earnings materials, IR documents, and document evidence.",
+      "resource_uri": "skill://skills/document-research.md",
+      "triggers": ["開示", "有報", "決算短信", "IR", "文書", "filing", "document"],
+      "recommended_first_tools": ["search_issuers", "list_documents", "search_documents"]
+    },
+    {
+      "id": "document-content-retrieval",
+      "title": "Document Content Retrieval",
+      "description": "Retrieve known document sections through TOC selection, cache reuse, and credit/character limits.",
+      "resource_uri": "skill://skills/document-content-retrieval.md",
+      "triggers": ["本文", "section", "toc", "document_id", "section_id", "content"],
+      "recommended_first_tools": ["get_document_metadata", "get_document_toc", "get_document_content"]
+    },
+    {
+      "id": "news-research",
+      "title": "News Research",
+      "description": "Research normalized news statements with references. Keep news separate from document search.",
+      "resource_uri": "skill://skills/news-research.md",
+      "triggers": ["ニュース", "news", "更新情報", "材料", "直近", "イベント"],
+      "recommended_first_tools": ["list_news", "search_news"]
+    },
+    {
+      "id": "file-download",
+      "title": "File Download",
+      "description": "Download one listed page image or original file only with explicit allow_file_download.",
+      "resource_uri": "skill://skills/file-download.md",
+      "triggers": ["画像", "ページ画像", "PDF", "XBRL", "元ファイル", "original", "download"],
+      "recommended_first_tools": ["list_document_page_images", "list_document_originals"]
+    },
+    {
+      "id": "evidence-answering",
+      "title": "Evidence Answering",
+      "description": "Produce grounded answers from already-retrieved document sections, news statements, files, or cached resources. Only enter this skill after a retrieval skill has run.",
+      "resource_uri": "skill://skills/evidence-answering.md",
+      "triggers": ["根拠付き回答", "evidence", "grounded answer", "cite", "引用"],
+      "recommended_first_tools": []
+    }
+  ]
+}

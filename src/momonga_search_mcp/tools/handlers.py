@@ -9,7 +9,13 @@ from urllib.parse import quote
 from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
 from momonga_search_mcp.cache import CachedResource, CacheManager
 from momonga_search_mcp.config import Config
-from momonga_search_mcp.tools.definitions import CREDIT_TOOLS, TOOL_ARGUMENT_ALTERNATIVES, ZERO_CREDIT_DOCUMENT_TOOLS
+from momonga_search_mcp.skills import get_skill, list_skills
+from momonga_search_mcp.tools.definitions import (
+    CREDIT_TOOLS,
+    SKILL_HELPER_TOOLS,
+    TOOL_ARGUMENT_ALTERNATIVES,
+    ZERO_CREDIT_DOCUMENT_TOOLS,
+)
 from momonga_search_mcp.tools.response import (
     get_document_content_response,
     get_document_toc_response,
@@ -18,7 +24,7 @@ from momonga_search_mcp.tools.response import (
 )
 
 DEFAULT_CONFIG = Config(api_key="")
-TOOL_SCHEMAS = {**ZERO_CREDIT_DOCUMENT_TOOLS, **CREDIT_TOOLS}
+TOOL_SCHEMAS = {**ZERO_CREDIT_DOCUMENT_TOOLS, **CREDIT_TOOLS, **SKILL_HELPER_TOOLS}
 CREDIT_COSTS = {
     "list_news": 1,
     "get_document_content": 8,
@@ -27,6 +33,22 @@ CREDIT_COSTS = {
     "get_document_page_image": 1,
     "get_document_original": 8,
 }
+SKILL_INDEX_GUARDED_TOOLS = {
+    "search_issuers",
+    "list_documents",
+    "list_news",
+    "get_document_content",
+    "search_documents",
+    "search_news",
+}
+
+
+class ToolSetupError(RuntimeError):
+    """Raised when MCP server-side setup prevents a tool from running.
+
+    Distinct from invalid tool input: the agent cannot fix this by retrying
+    with different arguments. The MCP operator must fix server configuration.
+    """
 
 
 def call_tool(
@@ -36,6 +58,7 @@ def call_tool(
     cache_manager_getter: Callable[[], CacheManager] | None = None,
     config: Config = DEFAULT_CONFIG,
     session_id: str = "default",
+    skill_index_seen: bool = True,
 ) -> dict[str, Any]:
     if not isinstance(params, dict):
         return _validation_error("tools/call params must be an object")
@@ -52,10 +75,25 @@ def call_tool(
             f"Unknown tool: {name}",
             next_action="Use one of the tool names returned by tools/list.",
         )
+    if name in SKILL_INDEX_GUARDED_TOOLS and not skill_index_seen:
+        return _tool_error(
+            "skill_index_required",
+            f"{name} requires reading the Momonga Search skill index before substantive research.",
+            next_action=(
+                "First read resource skill://index.json or call list_skills. "
+                "You can also load a workflow detail via get_skill (id from the index), "
+                "or launch a workflow via prompts/get with use_document_research, "
+                "use_news_research, or use_evidence_answering."
+            ),
+        )
 
     try:
         _validate_tool_arguments(name, arguments)
         _validate_runtime_limits(name, arguments, config)
+        if name == "list_skills":
+            return tool_json_result({"ok": True, "skills": list_skills()})
+        if name == "get_skill":
+            return tool_json_result({"ok": True, **get_skill(_required_string(arguments, "id"))})
         if name == "search_issuers":
             payload = api_client.get("/issuers/search", _require_arguments(arguments, ("q",), optional=("limit",)))
         elif name == "list_documents":
@@ -143,6 +181,15 @@ def call_tool(
             return _call_get_document_original(api_client, arguments, cache_manager_getter, config=config, session_id=session_id)
         else:
             raise ValueError(f"Unhandled tool: {name}")
+    except ToolSetupError as exc:
+        return _tool_error(
+            "server_setup_error",
+            str(exc),
+            next_action=(
+                "Stop and report this to the MCP operator as a server setup error. "
+                "Do not retry this tool call; tool arguments will not fix it."
+            ),
+        )
     except ValueError as exc:
         return _validation_error(str(exc))
     except MomongaApiError as exc:
@@ -182,7 +229,7 @@ def _call_get_document_toc(
 ) -> dict[str, Any]:
     document_id = _required_string(arguments, "document_id")
     if cache_manager_getter is None:
-        raise ValueError("cache manager is required for get_document_toc")
+        raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_toc")
 
     cache_manager = cache_manager_getter()
     cached_toc = cache_manager.get_document_toc(document_id)
@@ -215,7 +262,7 @@ def _call_get_document_content(
         raise ValueError("offset can only be used with exactly one section_id")
 
     if cache_manager_getter is None:
-        raise ValueError("cache manager is required for get_document_content")
+        raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_content")
     cache_manager = cache_manager_getter()
     if section_ids:
         cached_resources = [cache_manager.get_document_section(document_id, section_id) for section_id in section_ids]
@@ -286,7 +333,7 @@ def _call_get_document_page_image(
     if type(page_number) is not int or page_number < 1:
         raise ValueError("page_number must be greater than or equal to 1")
     if cache_manager_getter is None:
-        raise ValueError("cache manager is required for get_document_page_image")
+        raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_page_image")
 
     cache_manager = cache_manager_getter()
     cached = cache_manager.get_page_image(document_id, page_number)
@@ -352,7 +399,7 @@ def _call_get_document_original(
     document_id = _required_string(arguments, "document_id")
     original_id = _required_string(arguments, "original_id")
     if cache_manager_getter is None:
-        raise ValueError("cache manager is required for get_document_original")
+        raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_original")
 
     cache_manager = cache_manager_getter()
     cached = cache_manager.get_original_file(document_id, original_id)
@@ -452,7 +499,7 @@ def _call_credit_api(
     if credits > config.max_credits_per_tool_call:
         raise ValueError(f"{tool_name} would use {credits} credits, exceeding per-call limit {config.max_credits_per_tool_call}")
     if cache_manager_getter is None:
-        raise ValueError("cache manager is required for credit accounting")
+        raise ToolSetupError("cache manager is unavailable; credit accounting cannot proceed without MCP cache_dir")
 
     cache_manager = cache_manager_getter()
     session_credits = cache_manager.get_session_credits_used(session_id)
@@ -481,7 +528,7 @@ def _call_credit_binary_api(
     if credits > config.max_credits_per_tool_call:
         raise ValueError(f"{tool_name} would use {credits} credits, exceeding per-call limit {config.max_credits_per_tool_call}")
     if cache_manager_getter is None:
-        raise ValueError("cache manager is required for credit accounting")
+        raise ToolSetupError("cache manager is unavailable; credit accounting cannot proceed without MCP cache_dir")
 
     cache_manager = cache_manager_getter()
     session_credits = cache_manager.get_session_credits_used(session_id)
