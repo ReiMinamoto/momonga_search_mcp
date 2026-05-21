@@ -299,6 +299,30 @@ SKILL_HELPER_TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
     },
+    "list_cached_resources": {
+        "description": (
+            "List cached Momonga resources with optional filters. "
+            "Use document_id and resource_type to find cached document TOCs, sections, page metadata, or originals."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string", "description": "Filter to cached resources under one document_id."},
+                "resource_type": {
+                    "type": "string",
+                    "enum": ["toc", "section", "page", "original"],
+                    "description": "Filter by cached resource kind.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "description": "Maximum cached resources to return. API schema maximum is 50; MCP default is 20.",
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
 }
 
 

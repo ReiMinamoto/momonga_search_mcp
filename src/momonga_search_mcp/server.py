@@ -16,6 +16,7 @@ from momonga_search_mcp.cache import CacheManager
 from momonga_search_mcp.config import Config, ConfigError
 from momonga_search_mcp.logging import configure_logging
 from momonga_search_mcp.prompts import get_prompt, prompt_definitions
+from momonga_search_mcp.resources import is_momonga_resource_uri, read_momonga_resource
 from momonga_search_mcp.skills import read_skill_resource, skill_resources
 from momonga_search_mcp.tools.definitions import tool_definitions
 from momonga_search_mcp.tools.handlers import call_tool
@@ -165,10 +166,14 @@ class StdioMCPServer:
             return _error_response(request_id, -32602, "resources/read requires uri")
         uri = params["uri"]
         try:
-            text, mime_type = read_skill_resource(uri)
+            if is_momonga_resource_uri(uri):
+                text, mime_type = read_momonga_resource(self._cache_manager(), uri)
+            else:
+                text, mime_type = read_skill_resource(uri)
         except ValueError as exc:
             return _error_response(request_id, -32602, str(exc))
-        self.skill_index_seen = True
+        if not is_momonga_resource_uri(uri):
+            self.skill_index_seen = True
         return {
             "jsonrpc": JSONRPC_VERSION,
             "id": request_id,

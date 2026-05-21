@@ -21,11 +21,40 @@ class CacheManagerTests(unittest.TestCase):
         self.assertIn("document_sections", table_names)
         self.assertIn("document_page_images", table_names)
         self.assertIn("document_originals", table_names)
+        self.assertIn("json_resources", table_names)
         self.assertIn("api_calls", table_names)
         self.assertIn("credit_sessions", table_names)
         self.assertNotIn("document_metadata", table_names)
         self.assertNotIn("news", table_names)
         self.assertNotIn("issuers", table_names)
+
+    def test_stores_and_lists_json_resources(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache = CacheManager(cache_dir=Path(temp_dir))
+
+            resource = cache.store_document_toc("doc_123", {"document_id": "doc_123", "toc": []})
+            cached_resource = cache.get_json_resource("momonga://documents/doc_123/toc")
+            resources = cache.list_json_resources()
+
+            self.assertEqual(resource.resource_uri, "momonga://documents/doc_123/toc")
+            self.assertEqual(resources[0]["uri"], "momonga://documents/doc_123/toc")
+            self.assertEqual(resources[0]["mimeType"], "application/json")
+            assert cached_resource is not None
+            self.assertEqual(cache.read_json(cached_resource[0])["document_id"], "doc_123")
+
+    def test_lists_json_resources_with_filters(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache = CacheManager(cache_dir=Path(temp_dir))
+            cache.store_document_toc("doc_123", {"document_id": "doc_123", "toc": []})
+            cache.store_document_section("doc_123", "sec_1", {"section_id": "sec_1"})
+            cache.store_document_section("doc_456", "sec_2", {"section_id": "sec_2"})
+
+            resources = cache.list_json_resources(document_id="doc_123", resource_type="section")
+
+        self.assertEqual(
+            [resource["uri"] for resource in resources],
+            ["momonga://documents/doc_123/sections/sec_1"],
+        )
 
     def test_resource_tables_are_path_indexes(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -97,6 +126,8 @@ class CacheManagerTests(unittest.TestCase):
             )
             cached_page = cache.get_page_image("doc_123", 2)
             cached_original = cache.get_original_file("doc_123", "orig_1")
+            page_resource = cache.get_json_resource("momonga://documents/doc_123/pages/2")
+            original_resource = cache.get_json_resource("momonga://documents/doc_123/originals/orig_1")
 
             self.assertEqual(page.resource_uri, "momonga://documents/doc_123/pages/2")
             self.assertEqual(page.path.read_bytes(), b"image-bytes")
@@ -111,6 +142,10 @@ class CacheManagerTests(unittest.TestCase):
                 json.loads(original.path.with_name("metadata.json").read_text(encoding="utf-8"))["filename"],
                 "report.pdf",
             )
+            assert page_resource is not None
+            assert original_resource is not None
+            self.assertEqual(cache.read_json(page_resource[0])["file_path"], str(page.path))
+            self.assertEqual(cache.read_json(original_resource[0])["file_path"], str(original.path))
 
     def test_generates_encoded_resource_uri_segments(self) -> None:
         with TemporaryDirectory() as temp_dir:

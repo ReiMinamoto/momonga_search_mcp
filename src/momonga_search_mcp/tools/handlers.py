@@ -94,6 +94,8 @@ def call_tool(
             return tool_json_result({"ok": True, "skills": list_skills()})
         if name == "get_skill":
             return tool_json_result({"ok": True, **get_skill(_required_string(arguments, "id"))})
+        if name == "list_cached_resources":
+            return tool_json_result(_call_list_cached_resources(arguments, cache_manager_getter))
         if name == "search_issuers":
             payload = api_client.get("/issuers/search", _require_arguments(arguments, ("q",), optional=("limit",)))
         elif name == "list_documents":
@@ -220,6 +222,21 @@ def _tool_error(code: str, message: str, *, next_action: str) -> dict[str, Any]:
         },
         is_error=True,
     )
+
+
+def _call_list_cached_resources(
+    arguments: dict[str, Any],
+    cache_manager_getter: Callable[[], CacheManager] | None,
+) -> dict[str, Any]:
+    if cache_manager_getter is None:
+        raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for list_cached_resources")
+    cache_manager = cache_manager_getter()
+    resources = cache_manager.list_json_resources(
+        limit=arguments.get("limit", 20),
+        document_id=arguments.get("document_id"),
+        resource_type=arguments.get("resource_type"),
+    )
+    return {"ok": True, "resources": resources}
 
 
 def _call_get_document_toc(

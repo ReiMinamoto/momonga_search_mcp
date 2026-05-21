@@ -257,6 +257,87 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertNotIn("internal_extra", payload["content_sections"][0])
         self.assertNotIn("content", payload["content_sections"][0])
 
+    def test_list_cached_resources_filters_by_document_and_type(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            cache_manager.store_document_toc("doc_123", {"document_id": "doc_123", "toc": []})
+            cache_manager.store_document_section(
+                "doc_123",
+                "sec_1",
+                {"section_id": "sec_1", "content": "body"},
+            )
+            cache_manager.store_document_section(
+                "doc_456",
+                "sec_2",
+                {"section_id": "sec_2", "content": "other"},
+            )
+
+            response = call_tool(
+                FakeApiClient(),
+                {
+                    "name": "list_cached_resources",
+                    "arguments": {"document_id": "doc_123", "resource_type": "section"},
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+        payload = json.loads(response["content"][0]["text"])
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(
+            [resource["uri"] for resource in payload["resources"]],
+            ["momonga://documents/doc_123/sections/sec_1"],
+        )
+
+    def test_list_cached_resources_reports_setup_error_when_cache_unavailable(self) -> None:
+        response = call_tool(FakeApiClient(), {"name": "list_cached_resources", "arguments": {}})
+        payload = json.loads(response["content"][0]["text"])
+
+        self.assertTrue(response["isError"])
+        self.assertEqual(payload["error"]["code"], "server_setup_error")
+        self.assertIn("cache manager is unavailable", payload["error"]["message"])
+
+    def test_search_document_match_does_not_overwrite_cached_section_resource(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {
+            "results": [
+                {
+                    "document_id": "doc_123",
+                    "title": "Report",
+                    "matches": [
+                        {
+                            "section_id": "sec_1",
+                            "section_title": "Risk",
+                            "snippet": "short snippet",
+                        }
+                    ],
+                }
+            ]
+        }
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            cache_manager.store_document_section(
+                "doc_123",
+                "sec_1",
+                {
+                    "section_id": "sec_1",
+                    "section_title": "Risk",
+                    "character_count": 11,
+                    "content": "full body",
+                },
+            )
+
+            call_tool(
+                api_client,
+                {"name": "search_documents", "arguments": {"query": "risk"}},
+                cache_manager_getter=lambda: cache_manager,
+            )
+            cached_resource = cache_manager.get_json_resource("momonga://documents/doc_123/sections/sec_1")
+
+            assert cached_resource is not None
+            resource_payload = cache_manager.read_json(cached_resource[0])
+            self.assertEqual(resource_payload["content"], "full body")
+            self.assertNotIn("snippet", resource_payload)
+
     def test_cache_backed_tools_report_server_setup_error_when_cache_unavailable(self) -> None:
         calls = [
             ("get_document_toc", {"document_id": "doc_123"}),
@@ -650,6 +731,41 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(payload["filename"], "cached.pdf")
         self.assertEqual(payload["media_type"], "application/pdf")
         self.assertNotIn("metadata", payload)
+
+    def test_list_originals_does_not_overwrite_downloaded_original_resource(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {
+            "document_id": "doc_123",
+            "originals": [
+                {
+                    "original_id": "pdf",
+                    "filename": "manifest.pdf",
+                    "media_type": "application/pdf",
+                    "credit_cost": 8,
+                }
+            ],
+        }
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            original = cache_manager.store_original_file(
+                "doc_123",
+                "pdf",
+                b"cached-pdf",
+                filename="downloaded.pdf",
+                media_type="application/pdf",
+            )
+
+            call_tool(
+                api_client,
+                {"name": "list_document_originals", "arguments": {"document_id": "doc_123"}},
+                cache_manager_getter=lambda: cache_manager,
+            )
+            cached_resource = cache_manager.get_json_resource("momonga://documents/doc_123/originals/pdf")
+
+            assert cached_resource is not None
+            resource_payload = cache_manager.read_json(cached_resource[0])
+            self.assertEqual(resource_payload["file_path"], str(original.path))
+            self.assertEqual(resource_payload["filename"], "downloaded.pdf")
 
     def test_call_tool_returns_model_facing_unknown_tool_error(self) -> None:
         response = call_tool(FakeApiClient(), {"name": "missing_tool", "arguments": {}})

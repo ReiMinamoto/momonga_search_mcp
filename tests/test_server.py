@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 from momonga_search_mcp.config import Config
@@ -72,6 +74,7 @@ class ServerTests(unittest.TestCase):
                 "search_news",
                 "list_skills",
                 "get_skill",
+                "list_cached_resources",
             ],
         )
 
@@ -123,6 +126,89 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(content["mimeType"], "text/markdown")
         self.assertIn("# Document Research Skill", content["text"])
         self.assertIn("Use `get_document_content`", content["text"])
+
+    def test_momonga_resources_list_and_read_cached_tool_results_without_api_replay(self) -> None:
+        api_client = FakeApiClient()
+        with TemporaryDirectory() as temp_dir:
+            server = StdioMCPServer(
+                Config(api_key="ms_test_xxx", cache_dir=Path(temp_dir)),
+                api_client=api_client,
+            )
+            server.handle_message(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "list_skills", "arguments": {}},
+                }
+            )
+
+            api_client.response = {"document_id": "doc_123", "toc": [{"section_id": "sec_1", "section_title": "Risk"}]}
+            server.handle_message(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {"name": "get_document_toc", "arguments": {"document_id": "doc_123"}},
+                }
+            )
+
+            api_client.response = {
+                "document_id": "doc_123",
+                "content_sections": [
+                    {
+                        "section_id": "sec_1",
+                        "section_title": "Risk",
+                        "character_count": 4,
+                        "content": "body",
+                    }
+                ],
+            }
+            server.handle_message(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "get_document_content",
+                        "arguments": {"document_id": "doc_123", "section_ids": ["sec_1"]},
+                    },
+                }
+            )
+
+            list_response = server.handle_message(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "list_cached_resources",
+                        "arguments": {"document_id": "doc_123", "resource_type": "section"},
+                    },
+                }
+            )
+            calls_before_read = list(api_client.calls)
+            read_response = server.handle_message(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 6,
+                    "method": "resources/read",
+                    "params": {"uri": "momonga://documents/doc_123/sections/sec_1"},
+                }
+            )
+
+        self.assertIsNotNone(list_response)
+        assert list_response is not None
+        payload = json.loads(list_response["result"]["content"][0]["text"])
+        resource_uris = {resource["uri"] for resource in payload["resources"]}
+        self.assertNotIn("momonga://documents/doc_123/toc", resource_uris)
+        self.assertIn("momonga://documents/doc_123/sections/sec_1", resource_uris)
+        self.assertIsNotNone(read_response)
+        assert read_response is not None
+        content = read_response["result"]["contents"][0]
+        self.assertEqual(content["mimeType"], "application/json")
+        self.assertEqual(json.loads(content["text"])["content"], "body")
+        self.assertEqual(api_client.calls, calls_before_read)
 
     def test_prompts_list_and_get_representative_prompt(self) -> None:
         list_response = self.server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "prompts/list"})
@@ -290,9 +376,7 @@ class ServerTests(unittest.TestCase):
         api_client = FakeApiClient()
         server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
 
-        server.handle_message(
-            {"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://index.json"}}
-        )
+        server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://index.json"}})
         response = server.handle_message(
             {
                 "jsonrpc": "2.0",
@@ -337,9 +421,7 @@ class ServerTests(unittest.TestCase):
         api_client = FakeApiClient()
         server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
 
-        server.handle_message(
-            {"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://unknown.md"}}
-        )
+        server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://unknown.md"}})
         response = server.handle_message(
             {
                 "jsonrpc": "2.0",

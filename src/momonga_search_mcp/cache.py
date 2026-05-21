@@ -59,6 +59,12 @@ class CacheManager:
                 """,
                 (document_id, resource_uri, _relative_path(path, self.cache_dir), _now_iso()),
             )
+        self._register_json_resource_path(
+            resource_uri,
+            path,
+            name=f"Document TOC {document_id}",
+            description=f"Cached table of contents for document {document_id}.",
+        )
         return CachedResource(resource_uri=resource_uri, path=path)
 
     def get_document_toc(self, document_id: str) -> CachedResource | None:
@@ -101,6 +107,12 @@ class CacheManager:
                     _now_iso(),
                 ),
             )
+        self._register_json_resource_path(
+            resource_uri,
+            path,
+            name=f"Document Section {section_id}",
+            description=f"Cached section {section_id} for document {document_id}.",
+        )
         return CachedResource(resource_uri=resource_uri, path=path)
 
     def get_document_section(self, document_id: str, section_id: str) -> CachedResource | None:
@@ -128,9 +140,16 @@ class CacheManager:
     ) -> CachedResource:
         suffix = ".jpg" if media_type == "image/jpeg" else ".bin"
         path = self._write_bytes(("documents", document_id, "pages", f"{page_number}{suffix}"), content)
-        stored_metadata = {**(metadata or {}), "media_type": media_type}
-        metadata_path = self._write_json(("documents", document_id, "pages", f"{page_number}.json"), stored_metadata)
         resource_uri = self.document_page_uri(document_id, page_number)
+        stored_metadata = {
+            **(metadata or {}),
+            "document_id": document_id,
+            "page_number": page_number,
+            "file_path": str(path),
+            "resource_uri": resource_uri,
+            "media_type": media_type,
+        }
+        metadata_path = self._write_json(("documents", document_id, "pages", f"{page_number}.json"), stored_metadata)
         with self._connect() as connection:
             connection.execute(
                 """
@@ -154,6 +173,12 @@ class CacheManager:
                     _now_iso(),
                 ),
             )
+        self._register_json_resource_path(
+            resource_uri,
+            metadata_path,
+            name=f"Document Page {page_number}",
+            description=f"Cached page image metadata for document {document_id}, page {page_number}.",
+        )
         return CachedResource(resource_uri=resource_uri, path=path)
 
     def get_page_image(self, document_id: str, page_number: int) -> CachedResource | None:
@@ -184,9 +209,17 @@ class CacheManager:
         if not safe_filename or safe_filename in {".", ".."}:
             safe_filename = "file"
         path = self._write_bytes(("documents", document_id, "originals", original_id, safe_filename), content)
-        stored_metadata = {**(metadata or {}), "filename": filename, "media_type": media_type}
-        metadata_path = self._write_json(("documents", document_id, "originals", original_id, "metadata.json"), stored_metadata)
         resource_uri = self.document_original_uri(document_id, original_id)
+        stored_metadata = {
+            **(metadata or {}),
+            "document_id": document_id,
+            "original_id": original_id,
+            "file_path": str(path),
+            "resource_uri": resource_uri,
+            "filename": filename,
+            "media_type": media_type,
+        }
+        metadata_path = self._write_json(("documents", document_id, "originals", original_id, "metadata.json"), stored_metadata)
         with self._connect() as connection:
             connection.execute(
                 """
@@ -210,6 +243,12 @@ class CacheManager:
                     _now_iso(),
                 ),
             )
+        self._register_json_resource_path(
+            resource_uri,
+            metadata_path,
+            name=f"Document Original {original_id}",
+            description=f"Cached original file metadata for document {document_id}, original {original_id}.",
+        )
         return CachedResource(resource_uri=resource_uri, path=path)
 
     def get_original_file(self, document_id: str, original_id: str) -> CachedResource | None:
@@ -228,6 +267,69 @@ class CacheManager:
 
     def read_json(self, resource: CachedResource) -> dict[str, Any]:
         return self._read_json(resource.path)
+
+    def list_json_resources(
+        self,
+        *,
+        limit: int = 20,
+        document_id: str | None = None,
+        resource_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        filters = []
+        params: list[Any] = []
+        if document_id is not None:
+            filters.append("resource_uri LIKE ?")
+            params.append(f"{self.document_uri(document_id)}%")
+        if resource_type is not None:
+            if resource_type == "toc":
+                filters.append("resource_uri LIKE ?")
+                params.append("%/toc")
+            elif resource_type == "section":
+                filters.append("resource_uri LIKE ?")
+                params.append("%/sections/%")
+            elif resource_type == "page":
+                filters.append("resource_uri LIKE ?")
+                params.append("%/pages/%")
+            elif resource_type == "original":
+                filters.append("resource_uri LIKE ?")
+                params.append("%/originals/%")
+            else:
+                raise ValueError(f"Unknown resource_type: {resource_type}")
+        where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT resource_uri, name, description, mime_type
+                FROM json_resources
+                {where}
+                ORDER BY cached_at DESC, resource_uri ASC
+                LIMIT ?
+                """,
+                (*params, limit),
+            ).fetchall()
+        return [
+            {
+                "uri": row["resource_uri"],
+                "name": row["name"],
+                "description": row["description"],
+                "mimeType": row["mime_type"],
+            }
+            for row in rows
+        ]
+
+    def get_json_resource(self, resource_uri: str) -> tuple[CachedResource, str] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT json_path, mime_type
+                FROM json_resources
+                WHERE resource_uri = ?
+                """,
+                (resource_uri,),
+            ).fetchone()
+        if row is None:
+            return None
+        return CachedResource(resource_uri=resource_uri, path=self.cache_dir / row["json_path"]), row["mime_type"]
 
     def record_api_call(
         self,
@@ -331,6 +433,15 @@ class CacheManager:
                     PRIMARY KEY (document_id, original_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS json_resources (
+                    resource_uri TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    mime_type TEXT NOT NULL,
+                    json_path TEXT NOT NULL,
+                    cached_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS api_calls (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     tool_name TEXT NOT NULL,
@@ -377,6 +488,30 @@ class CacheManager:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(payload)
         return path
+
+    def _register_json_resource_path(
+        self,
+        resource_uri: str,
+        path: Path,
+        *,
+        name: str,
+        description: str,
+        mime_type: str = "application/json",
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO json_resources (resource_uri, name, description, mime_type, json_path, cached_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(resource_uri) DO UPDATE SET
+                    name = excluded.name,
+                    description = excluded.description,
+                    mime_type = excluded.mime_type,
+                    json_path = excluded.json_path,
+                    cached_at = excluded.cached_at
+                """,
+                (resource_uri, name, description, mime_type, _relative_path(path, self.cache_dir), _now_iso()),
+            )
 
 
 def _now_iso() -> str:

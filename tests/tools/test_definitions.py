@@ -26,6 +26,7 @@ class ToolDefinitionTests(unittest.TestCase):
                 "search_news",
                 "list_skills",
                 "get_skill",
+                "list_cached_resources",
             ],
         )
 
@@ -84,6 +85,11 @@ class ToolDefinitionTests(unittest.TestCase):
 
         self.assertEqual(schemas["list_skills"]["properties"], {})
         self.assertNotIn("required", schemas["list_skills"])
+        self.assertEqual(schemas["list_cached_resources"]["properties"]["limit"]["maximum"], 50)
+        self.assertEqual(
+            schemas["list_cached_resources"]["properties"]["resource_type"]["enum"],
+            ["toc", "section", "page", "original"],
+        )
         self.assertEqual(schemas["get_skill"]["required"], ["id"])
 
 
