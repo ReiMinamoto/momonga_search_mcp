@@ -12,3 +12,11 @@ wheels/
 
 # Environment variables
 .env
+
+# Momonga MCP runtime cache
+.cache/
+momonga-search-mcp/
+momonga-search-mcp-cache/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

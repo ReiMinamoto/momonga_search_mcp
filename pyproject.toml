@@ -1,9 +1,11 @@
 [project]
 name = "momonga-search-mcp"
 version = "0.1.0"
-description = "Add your description here"
+description = "MCP stdio server for Momonga Search API document and news research workflows"
 readme = "README.md"
 requires-python = ">=3.13"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "python-dotenv>=1.2.1",
 ]
@@ -12,7 +14,7 @@ dependencies = [
 momonga-search-mcp = "momonga_search_mcp.server:main"
 
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

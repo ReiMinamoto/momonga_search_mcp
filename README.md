@@ -1,6 +1,6 @@
 # Momonga Search MCP
 
-Momonga Search APIをMCP経由で使うためのstdioサーバーです。
+Momonga Search MCP は、個人的な開発による、企業公表資料・経済ニュースを LLM/Agent が安全に検索・取得・根拠提示するための workflow MCP server です。汎用Web検索MCPではありません。
 
 ## 機能
 
@@ -16,6 +16,19 @@ Momonga Search APIをMCP経由で使うためのstdioサーバーです。
 - 画像・元ファイル・大量取得は明示フラグを要求します。
 - 実質不変な取得済みresourceだけをローカルに保存し、再取得時はcacheを優先します。
 - ローカル保存された情報は `momonga://...` URIで参照できるようにします。
+
+## 金融・開示データ利用上の注意
+
+このMCPは、企業開示・ニュース・関連資料の一次情報や根拠候補を取得するためのworkflow基盤です。投資助言、売買推奨、将来収益の保証、法務・会計判断は提供しません。取得結果を使った最終判断、一次情報との照合、投資判断は利用者側で行ってください。
+
+このMCPのtool responseでは、根拠、時刻、出典を以下の意味で扱います。
+
+- `timeline_at` は一覧・検索・時系列整理のための正規化時刻です。公表時刻として扱わないでください。
+- `content_status=ready` は本文取得可能、`pending_release` は公開待ち、`external_only` はAPI本文ではなく外部参照先で確認する文書です。
+- `reference_url` は根拠確認用の参照URLであり、元ファイルの直接download URLとは限りません。元ファイルが必要な場合は `list_document_originals` と `get_document_original` を使ってください。
+- news系toolは記事全文ではなく、正規化された `statement` と `references[]` を返します。ニュース本文そのものとして引用しないでください。
+- documents系toolとnews系toolは別の検索対象です。統合ランキングは行わず、必要な場合は最終回答で根拠種別を分けて扱ってください。
+- coverageには制約があります。例えばv1では `ir_material` がmetadata一覧に出ても、本文検索対象外の場合があります。
 
 主なtool:
 
@@ -44,6 +57,11 @@ Prompts:
 | `use_news_research` | ニュース調査を開始する |
 | `use_evidence_answering` | 根拠付き回答を作成する |
 
+詳細:
+
+- `docs/tool_responses.md`: MCP tool / API endpoint 対応表、tool response field
+- `docs/runtime.md`: MCP protocol version、credit accounting、cache方針
+
 ## 設定
 
 設定は環境変数で指定します。コピーして使うための雛形は `.env.example` を参照してください。
@@ -66,54 +84,88 @@ Prompts:
 export MOMONGA_SEARCH_API_KEY=ms_live_xxx
 ```
 
-## キャッシュ方針
+## インストール
 
-cache可否の基準は、取得対象が不変または実質不変かどうかです。
-
-キャッシュするもの:
-
-
-| 対象 | 理由 |
-| --- | --- |
-| document toc | `document_id` に紐づくsection構造で、content ready後は実質不変として扱えるため。 |
-| document section本文 | `document_id + section_id` で固定される本文で、同じsectionの再取得を避けるべきため。 |
-| page image実体 | `document_id + page_number` に紐づく文書ページの実体で、実質不変として扱えるため。 |
-| original file実体 | `document_id + original_id` に紐づく元ファイル実体で、実質不変として扱えるため。 |
-
-
-キャッシュしないもの:
-
-
-| 対象 | 理由 |
-| --- | --- |
-| issuer search結果 | issuer情報、上場状態、検索結果の並びが変わりうるため。 |
-| document list結果 | 新規開示、訂正、availability、並びが変わりうるため。 |
-| document metadata / status | `content_status`、`content_available`、`image_available` などが変わりうるため。 |
-| document search結果 | 検索index、ranking、hit内容が更新されうるため。 |
-| news list/search結果 | 最新性そのものが価値で、古い結果を返すリスクが高いため。 |
-| page image / original list結果 | 取得可否や一覧内容を都度APIで確認すべきため。 |
-
-## ローカル実行
+`uv` を使う前提のローカル実行手順です。
 
 ```sh
+git clone https://github.com/<owner>/momonga-search-mcp.git
+cd momonga-search-mcp
+uv sync --dev
+cp .env.example .env
+```
+
+https://momongasearch.com/ でMomonga Search APIキーを発行し、`.env` の `MOMONGA_SEARCH_API_KEY` を実際のAPIキーに置き換えます。APIキーはrepositoryへcommitしないでください。
+
+動作確認:
+
+```sh
+set -a
+. ./.env
+set +a
 PYTHONPATH=src python -m momonga_search_mcp.server
 ```
 
-## MCPクライアント設定例
+上のコマンドはstdio serverとして待機します。手動確認を終える場合は `Ctrl-C` で停止してください。
+
+## MCPクライアント登録
+
+### Claude Code
+
+Claude Codeでは、project共有設定としてrepository rootの `.mcp.json` に登録できます。
 
 ```json
 {
   "mcpServers": {
     "momonga-search": {
       "command": "uv",
-      "args": ["run", "momonga-search-mcp"],
-      "env": {
-        "MOMONGA_SEARCH_API_KEY": "ms_live_xxx",
-        "MOMONGA_BASE_URL": "https://api.momongasearch.com/v1"
-      }
+      "args": [
+        "--directory",
+        "${CLAUDE_PROJECT_DIR:-.}",
+        "run",
+        "momonga-search-mcp"
+      ]
     }
   }
 }
+```
+
+CLIで登録する場合:
+
+```sh
+claude mcp add --scope project --transport stdio momonga-search -- \
+  uv --directory /absolute/path/to/momonga-search-mcp run momonga-search-mcp
+```
+
+登録後、Claude Code内で `/mcp` を実行して接続状態を確認します。project scopeの `.mcp.json` は共有設定としてversion管理できますが、Claude Codeは利用前に承認を求めます。
+
+### Codex
+
+Codexでは `~/.codex/config.toml`、またはtrusted projectの `.codex/config.toml` に登録します。
+
+```toml
+[mcp_servers.momonga-search]
+command = "uv"
+args = ["run", "momonga-search-mcp"]
+cwd = "/absolute/path/to/momonga-search-mcp"
+```
+
+CLIで登録する場合:
+
+```sh
+codex mcp add momonga-search -- uv --directory /absolute/path/to/momonga-search-mcp run momonga-search-mcp
+```
+
+登録後、Codex TUI内で `/mcp` を実行して接続状態を確認します。Codex CLIとIDE extensionは同じ設定layerを参照します。
+
+server起動時に repository directory の `.env` を読み込むため、上記のようにrepository directoryで起動できる場合は、MCP client設定へAPIキーを書く必要はありません。
+
+`cwd` を指定できないMCP clientでは、`command` に絶対パスのwrapper scriptを指定するか、client側の起動directoryをこのrepositoryに合わせてください。`.env` を使わない運用では、client側の `env` で `MOMONGA_SEARCH_API_KEY` を渡してください。
+
+## ローカル実行
+
+```sh
+PYTHONPATH=src python -m momonga_search_mcp.server
 ```
 
 uvがデフォルトのcache directoryに書き込めない環境では、次のようにworkspace内へcacheを向けます。
@@ -127,5 +179,5 @@ export UV_CACHE_DIR=.uv-cache
 ```sh
 UV_CACHE_DIR=.uv-cache uv run ruff check .
 UV_CACHE_DIR=.uv-cache uv run ruff format --check .
-PYTHONPATH=src python -m unittest discover -s tests
+UV_CACHE_DIR=.uv-cache uv run pytest
 ```
