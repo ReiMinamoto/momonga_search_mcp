@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import json
 from typing import Any
 
 from momonga_search_mcp.cache import CachedResource
@@ -39,13 +38,48 @@ def tool_json_result(payload: dict[str, Any], *, is_error: bool = False) -> dict
         "content": [
             {
                 "type": "text",
-                "text": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                "text": _summary_text(payload, is_error=is_error),
             }
-        ]
+        ],
+        "structuredContent": payload,
     }
     if is_error:
         result["isError"] = True
     return result
+
+
+def _summary_text(payload: dict[str, Any], *, is_error: bool) -> str:
+    if is_error:
+        error = payload.get("error")
+        if isinstance(error, dict):
+            code = error.get("code")
+            message = error.get("message")
+            if isinstance(code, str) and isinstance(message, str):
+                return f"Error {code}: {message}. See structuredContent."
+            if isinstance(code, str):
+                return f"Error {code}. See structuredContent."
+        return "Error. See structuredContent."
+
+    if payload.get("ok") is True:
+        result_count = _list_count(payload, "results")
+        if result_count is not None:
+            return f"OK. Returned {result_count} result(s). See structuredContent."
+        section_count = _list_count(payload, "content_sections")
+        if section_count is not None:
+            return f"OK. Returned {section_count} content section(s). See structuredContent."
+        resource_count = _list_count(payload, "resources")
+        if resource_count is not None:
+            return f"OK. Returned {resource_count} cached resource(s). See structuredContent."
+        return "OK. See structuredContent."
+
+    return "Result returned in structuredContent."
+
+
+def _list_count(payload: dict[str, Any], key: str) -> int | None:
+    value = payload.get(key)
+    if isinstance(value, list):
+        return len(value)
+    return None
 
 
 def success_response(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:

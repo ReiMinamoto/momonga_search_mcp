@@ -26,6 +26,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
+        self.assertEqual(response["result"]["protocolVersion"], "2025-11-25")
         self.assertEqual(response["result"]["serverInfo"]["name"], "momonga-search-mcp")
         self.assertIn("tools", response["result"]["capabilities"])
 
@@ -199,7 +200,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(list_response)
         assert list_response is not None
-        payload = json.loads(list_response["result"]["content"][0]["text"])
+        payload = list_response["result"]["structuredContent"]
         resource_uris = {resource["uri"] for resource in payload["resources"]}
         self.assertNotIn("momonga://documents/doc_123/toc", resource_uris)
         self.assertIn("momonga://documents/doc_123/sections/sec_1", resource_uris)
@@ -253,7 +254,8 @@ class ServerTests(unittest.TestCase):
         self.assertIsNotNone(response)
         assert response is not None
         self.assertTrue(response["result"]["isError"])
-        payload = json.loads(response["result"]["content"][0]["text"])
+        payload = response["result"]["structuredContent"]
+        self.assertIn("See structuredContent.", response["result"]["content"][0]["text"])
         self.assertEqual(payload["error"]["code"], "invalid_request")
         self.assertIsNone(payload["error"]["status"])
         self.assertEqual(payload["error"]["message"], "document_id is required")
@@ -271,7 +273,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
+        payload = response["result"]["structuredContent"]
         self.assertNotIn("isError", response["result"])
         self.assertEqual(
             [skill["id"] for skill in payload["skills"]],
@@ -297,7 +299,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
+        payload = response["result"]["structuredContent"]
         self.assertEqual(payload["id"], "news-research")
         self.assertIn("# News Research Skill", payload["content"])
 
@@ -316,7 +318,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
+        payload = response["result"]["structuredContent"]
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])
@@ -336,7 +338,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
+        payload = response["result"]["structuredContent"]
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         next_action = payload["error"]["next_action"]
@@ -433,7 +435,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
+        payload = response["result"]["structuredContent"]
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])
@@ -487,7 +489,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
+        payload = response["result"]["structuredContent"]
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])
@@ -544,7 +546,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
+        payload = response["result"]["structuredContent"]
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])

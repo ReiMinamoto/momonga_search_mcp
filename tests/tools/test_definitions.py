@@ -38,6 +38,27 @@ class ToolDefinitionTests(unittest.TestCase):
             for key in ("anyOf", "oneOf", "allOf", "not"):
                 self.assertNotIn(key, schema, msg=f"{tool_name} must not use top-level {key}")
 
+    def test_tool_definitions_include_latest_mcp_metadata(self) -> None:
+        tools = {tool["name"]: tool for tool in tool_definitions()}
+
+        for tool_name, tool in tools.items():
+            self.assertIsInstance(tool["title"], str, msg=tool_name)
+            self.assertTrue(tool["title"], msg=tool_name)
+            self.assertEqual(tool["annotations"]["readOnlyHint"], True, msg=tool_name)
+            self.assertEqual(tool["annotations"]["destructiveHint"], False, msg=tool_name)
+            self.assertEqual(tool["outputSchema"]["type"], "object", msg=tool_name)
+            self.assertEqual(tool["outputSchema"]["additionalProperties"], False, msg=tool_name)
+            self.assertIn("ok", tool["outputSchema"]["properties"], msg=tool_name)
+            self.assertIn("error", tool["outputSchema"]["properties"], msg=tool_name)
+
+        self.assertEqual(tools["search_documents"]["annotations"]["openWorldHint"], True)
+        self.assertEqual(tools["list_cached_resources"]["annotations"]["openWorldHint"], False)
+        self.assertIn("issuers", tools["get_document_metadata"]["outputSchema"]["properties"])
+        self.assertIn("page_images", tools["list_document_page_images"]["outputSchema"]["properties"])
+        self.assertIn("originals", tools["list_document_originals"]["outputSchema"]["properties"])
+        self.assertIn("content_sections", tools["get_document_content"]["outputSchema"]["properties"])
+        self.assertIn("credits_used", tools["get_document_content"]["outputSchema"]["properties"])
+
     def test_list_tool_argument_alternatives_are_enforced_at_runtime(self) -> None:
         self.assertEqual(
             TOOL_ARGUMENT_ALTERNATIVES["list_documents"],

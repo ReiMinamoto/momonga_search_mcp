@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -59,7 +58,7 @@ class ToolHandlerTests(unittest.TestCase):
 
         response = call_tool(api_client, {"name": "get_document_metadata", "arguments": {"document_id": "doc_123"}})
 
-        payload = json.loads(response["content"][0]["text"])
+        payload = response["structuredContent"]
         self.assertEqual(
             payload,
             {
@@ -106,7 +105,7 @@ class ToolHandlerTests(unittest.TestCase):
                     {"name": name, "arguments": arguments},
                     cache_manager_getter=lambda: cache_manager,
                 )
-                payload = json.loads(response["content"][0]["text"])
+                payload = response["structuredContent"]
                 self.assertEqual(
                     api_client.calls[-1], ("POST" if name.startswith("search_") else "GET", expected_path, expected_payload)
                 )
@@ -128,7 +127,7 @@ class ToolHandlerTests(unittest.TestCase):
                 cache_manager_getter=lambda: cache_manager,
             )
 
-            payload = json.loads(response["content"][0]["text"])
+            payload = response["structuredContent"]
             cached_toc = cache_manager.get_document_toc("doc_123")
 
         self.assertEqual(api_client.calls, [("GET", "/documents/doc_123/toc", None)])
@@ -163,7 +162,7 @@ class ToolHandlerTests(unittest.TestCase):
                 cache_manager_getter=lambda: cache_manager,
             )
 
-        payload = json.loads(response["content"][0]["text"])
+        payload = response["structuredContent"]
         self.assertEqual(api_client.calls, [])
         self.assertTrue(payload["cache_hit"])
         self.assertEqual(payload["toc"][0]["section_id"], "sec_1")
@@ -195,7 +194,7 @@ class ToolHandlerTests(unittest.TestCase):
                 cache_manager_getter=lambda: cache_manager,
             )
 
-            payload = json.loads(response["content"][0]["text"])
+            payload = response["structuredContent"]
             cached_section = cache_manager.get_document_section("doc_123", "sec_1")
 
         self.assertEqual(api_client.calls, [("GET", "/documents/doc_123/content", {"sections": ["sec_1"]})])
@@ -248,7 +247,7 @@ class ToolHandlerTests(unittest.TestCase):
                 cache_manager_getter=lambda: cache_manager,
             )
 
-        payload = json.loads(response["content"][0]["text"])
+        payload = response["structuredContent"]
         self.assertEqual(api_client.calls, [])
         self.assertTrue(payload["cache_hit"])
         self.assertEqual(payload["content_sections"][0]["section_title"], "Risk")
@@ -281,7 +280,7 @@ class ToolHandlerTests(unittest.TestCase):
                 cache_manager_getter=lambda: cache_manager,
             )
 
-        payload = json.loads(response["content"][0]["text"])
+        payload = response["structuredContent"]
         self.assertEqual(payload["ok"], True)
         self.assertEqual(
             [resource["uri"] for resource in payload["resources"]],
@@ -290,7 +289,7 @@ class ToolHandlerTests(unittest.TestCase):
 
     def test_list_cached_resources_reports_setup_error_when_cache_unavailable(self) -> None:
         response = call_tool(FakeApiClient(), {"name": "list_cached_resources", "arguments": {}})
-        payload = json.loads(response["content"][0]["text"])
+        payload = response["structuredContent"]
 
         self.assertTrue(response["isError"])
         self.assertEqual(payload["error"]["code"], "server_setup_error")
@@ -353,7 +352,7 @@ class ToolHandlerTests(unittest.TestCase):
         ]
         for tool_name, arguments in calls:
             response = call_tool(FakeApiClient(), {"name": tool_name, "arguments": arguments})
-            payload = json.loads(response["content"][0]["text"])
+            payload = response["structuredContent"]
 
             self.assertTrue(response["isError"], msg=tool_name)
             self.assertEqual(payload["error"]["code"], "server_setup_error", msg=tool_name)
@@ -364,7 +363,7 @@ class ToolHandlerTests(unittest.TestCase):
 
     def test_get_document_content_requires_section_ids(self) -> None:
         response = call_tool(FakeApiClient(), {"name": "get_document_content", "arguments": {"document_id": "doc_123"}})
-        payload = json.loads(response["content"][0]["text"])
+        payload = response["structuredContent"]
 
         self.assertTrue(response["isError"])
         self.assertEqual(payload["error"]["code"], "invalid_request")
@@ -382,7 +381,7 @@ class ToolHandlerTests(unittest.TestCase):
 
         for arguments, expected_message in invalid_calls:
             response = call_tool(FakeApiClient(), {"name": "get_document_content", "arguments": arguments})
-            payload = json.loads(response["content"][0]["text"])
+            payload = response["structuredContent"]
 
             self.assertTrue(response["isError"])
             self.assertEqual(payload["error"]["message"], expected_message)
@@ -400,7 +399,7 @@ class ToolHandlerTests(unittest.TestCase):
 
         for name, arguments, expected_message in calls:
             response = call_tool(FakeApiClient(), {"name": name, "arguments": arguments})
-            payload = json.loads(response["content"][0]["text"])
+            payload = response["structuredContent"]
 
             self.assertTrue(response["isError"])
             self.assertEqual(payload["error"]["message"], expected_message)
@@ -419,7 +418,7 @@ class ToolHandlerTests(unittest.TestCase):
                 session_id="session_1",
             )
 
-        payload = json.loads(response["content"][0]["text"])
+        payload = response["structuredContent"]
         self.assertEqual(api_client.calls, [])
         self.assertTrue(response["isError"])
         self.assertIn("exceeding session limit 1", payload["error"]["message"])
@@ -429,14 +428,14 @@ class ToolHandlerTests(unittest.TestCase):
             FakeApiClient(),
             {"name": "list_documents", "arguments": {"security_codes": ["8058"], "ignored": "x"}},
         )
-        payload = json.loads(response["content"][0]["text"])
+        payload = response["structuredContent"]
 
         self.assertTrue(response["isError"])
         self.assertEqual(payload["error"]["message"], "unknown arguments: ignored")
 
     def test_call_tool_validates_any_of_arguments(self) -> None:
         response = call_tool(FakeApiClient(), {"name": "list_documents", "arguments": {"limit": 10}})
-        payload = json.loads(response["content"][0]["text"])
+        payload = response["structuredContent"]
 
         self.assertTrue(response["isError"])
         self.assertEqual(payload["error"]["message"], "one of these argument sets is required: security_codes or timeline_since")
@@ -454,11 +453,12 @@ class ToolHandlerTests(unittest.TestCase):
             )
 
         self.assertTrue(response["isError"])
-        self.assertIn('"content_not_available"', response["content"][0]["text"])
+        self.assertEqual(response["structuredContent"]["error"]["code"], "content_not_available")
+        self.assertIn("See structuredContent.", response["content"][0]["text"])
 
     def test_call_tool_validates_required_arguments(self) -> None:
         response = call_tool(FakeApiClient(), {"name": "get_document_metadata", "arguments": {}})
-        payload = json.loads(response["content"][0]["text"])
+        payload = response["structuredContent"]
 
         self.assertTrue(response["isError"])
         self.assertEqual(
@@ -490,7 +490,7 @@ class ToolHandlerTests(unittest.TestCase):
 
         for name, arguments, expected_message in calls:
             response = call_tool(FakeApiClient(), {"name": name, "arguments": arguments})
-            payload = json.loads(response["content"][0]["text"])
+            payload = response["structuredContent"]
 
             self.assertTrue(response["isError"])
             self.assertEqual(payload["error"]["message"], expected_message)
@@ -518,7 +518,7 @@ class ToolHandlerTests(unittest.TestCase):
                 cache_manager_getter=lambda: cache_manager,
             )
 
-            payload = json.loads(response["content"][0]["text"])
+            payload = response["structuredContent"]
             cached_page = cache_manager.get_page_image("doc_123", 2)
             downloaded_path = Path(payload["file_path"])
             self.assertTrue(downloaded_path.exists())
@@ -571,7 +571,7 @@ class ToolHandlerTests(unittest.TestCase):
                 cache_manager_getter=lambda: cache_manager,
             )
 
-            payload = json.loads(response["content"][0]["text"])
+            payload = response["structuredContent"]
             cached_original = cache_manager.get_original_file("doc_123", "pdf")
             downloaded_path = Path(payload["file_path"])
             self.assertTrue(downloaded_path.exists())
@@ -616,7 +616,7 @@ class ToolHandlerTests(unittest.TestCase):
                 cache_manager_getter=lambda: cache_manager,
             )
 
-            payload = json.loads(response["content"][0]["text"])
+            payload = response["structuredContent"]
 
         self.assertEqual(api_client.calls, [("GET_BINARY", "/documents/doc_123/originals/pdf", None)])
         self.assertFalse(payload["cached"])
@@ -647,7 +647,7 @@ class ToolHandlerTests(unittest.TestCase):
                 cache_manager_getter=lambda: cache_manager,
             )
 
-            payload = json.loads(response["content"][0]["text"])
+            payload = response["structuredContent"]
             session_credits = cache_manager.get_session_credits_used("default")
 
         self.assertEqual(
@@ -685,7 +685,7 @@ class ToolHandlerTests(unittest.TestCase):
                 cache_manager_getter=lambda: cache_manager,
             )
 
-            payload = json.loads(response["content"][0]["text"])
+            payload = response["structuredContent"]
             session_credits = cache_manager.get_session_credits_used("default")
 
         self.assertEqual(
@@ -724,7 +724,7 @@ class ToolHandlerTests(unittest.TestCase):
                 cache_manager_getter=lambda: cache_manager,
             )
 
-        payload = json.loads(response["content"][0]["text"])
+        payload = response["structuredContent"]
         self.assertEqual(api_client.calls, [])
         self.assertTrue(payload["cached"])
         self.assertEqual(payload["credits_used"], 0)
@@ -769,7 +769,7 @@ class ToolHandlerTests(unittest.TestCase):
 
     def test_call_tool_returns_model_facing_unknown_tool_error(self) -> None:
         response = call_tool(FakeApiClient(), {"name": "missing_tool", "arguments": {}})
-        payload = json.loads(response["content"][0]["text"])
+        payload = response["structuredContent"]
 
         self.assertTrue(response["isError"])
         self.assertEqual(

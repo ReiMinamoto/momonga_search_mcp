@@ -5,10 +5,10 @@
 ## 対応範囲
 
 - MCP transport: stdio
-- MCP protocolVersion: `2024-11-05`
+- MCP protocolVersion: `2025-11-25`
 - Python: `>=3.13`
-- Streamable HTTP: 未対応
-- client別E2E確認: 未整備です。stdio MCP clientから `initialize`、`tools/list`、`resources/list`、`prompts/list` を呼べることを前提にしています。
+- tool response: full payloadは `structuredContent` にJSON objectとして返し、`content[].text` は短いsummaryだけを返します。
+- tool metadata: `tools/list` は `title`、`annotations`、主要fieldの `outputSchema` を返します。`outputSchema` はMCP tool responseのトップレベル契約を示すもので、API由来のネストした構造は後方互換性のため緩く扱います。
 
 ## Credit accounting
 

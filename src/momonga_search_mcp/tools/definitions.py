@@ -28,6 +28,85 @@ TOP_K_SCHEMA = {
     "description": "Number of search results to return. API maximum is 50; MCP default runtime limit is 10.",
 }
 
+COMMON_ERROR_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "code": {"type": "string"},
+        "status": {"type": ["integer", "null"]},
+        "message": {"type": "string"},
+        "next_action": {"type": "string"},
+        "retry_after_seconds": {"type": "integer"},
+    },
+    "required": ["code", "message"],
+    "additionalProperties": True,
+}
+
+BASE_OUTPUT_PROPERTIES: dict[str, Any] = {
+    "ok": {"type": "boolean"},
+    "error": COMMON_ERROR_SCHEMA,
+}
+
+CREDIT_OUTPUT_PROPERTIES: dict[str, Any] = {
+    "credits_used": {"type": "integer"},
+    "session_credits_used": {"type": "integer"},
+    "session_credit_limit": {"type": "integer"},
+    "session_credits_remaining": {"type": "integer"},
+}
+
+RESOURCE_OUTPUT_PROPERTIES: dict[str, Any] = {
+    "cache_hit": {"type": "boolean"},
+    "cached": {"type": "boolean"},
+    "resource_uri": {"type": "string"},
+}
+
+TOOL_TITLES = {
+    "search_issuers": "Search Issuers",
+    "list_documents": "List Documents",
+    "get_document_metadata": "Get Document Metadata",
+    "get_document_toc": "Get Document TOC",
+    "list_document_page_images": "List Document Page Images",
+    "list_document_originals": "List Document Originals",
+    "list_news": "List News",
+    "get_document_content": "Get Document Content",
+    "get_document_original": "Get Document Original",
+    "get_document_page_image": "Get Document Page Image",
+    "search_documents": "Search Documents",
+    "search_news": "Search News",
+    "list_skills": "List Skills",
+    "get_skill": "Get Skill",
+    "list_cached_resources": "List Cached Resources",
+}
+
+OPEN_WORLD_READ_ONLY_ANNOTATIONS = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "openWorldHint": True,
+}
+
+LOCAL_READ_ONLY_ANNOTATIONS = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "openWorldHint": False,
+}
+
+TOOL_ANNOTATIONS = {
+    "search_issuers": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "list_documents": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "get_document_metadata": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "get_document_toc": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "list_document_page_images": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "list_document_originals": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "list_news": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "get_document_content": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "get_document_original": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "get_document_page_image": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "search_documents": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "search_news": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "list_skills": LOCAL_READ_ONLY_ANNOTATIONS,
+    "get_skill": LOCAL_READ_ONLY_ANNOTATIONS,
+    "list_cached_resources": LOCAL_READ_ONLY_ANNOTATIONS,
+}
+
 # OpenAI/Codex-compatible tool schemas cannot use top-level anyOf. Enforce these at runtime instead.
 TOOL_ARGUMENT_ALTERNATIVES: dict[str, list[dict[str, list[str]]]] = {
     "list_documents": [{"required": ["security_codes"]}, {"required": ["timeline_since"]}],
@@ -329,6 +408,116 @@ SKILL_HELPER_TOOLS: dict[str, dict[str, Any]] = {
 def tool_definitions() -> list[dict[str, Any]]:
     tools = {**ZERO_CREDIT_DOCUMENT_TOOLS, **CREDIT_TOOLS, **SKILL_HELPER_TOOLS}
     return [
-        {"name": name, "description": definition["description"], "inputSchema": definition["inputSchema"]}
+        {
+            "name": name,
+            "title": TOOL_TITLES[name],
+            "description": definition["description"],
+            "inputSchema": definition["inputSchema"],
+            "outputSchema": _tool_output_schema(name),
+            "annotations": TOOL_ANNOTATIONS[name],
+        }
         for name, definition in tools.items()
     ]
+
+
+def _tool_output_schema(tool_name: str) -> dict[str, Any]:
+    properties: dict[str, Any] = dict(BASE_OUTPUT_PROPERTIES)
+    required = ["ok"]
+
+    if tool_name in {"search_issuers", "list_documents", "list_news", "search_documents", "search_news"}:
+        properties["results"] = {"type": "array", "items": {"type": "object", "additionalProperties": True}}
+        properties["next_cursor"] = {"type": "string"}
+
+    if tool_name == "get_document_metadata":
+        properties.update(
+            {
+                "document_id": {"type": "string"},
+                "document_family": {"type": "string"},
+                "title": {"type": "string"},
+                "document_type": {"type": "string"},
+                "issuers": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                "timeline_at": {"type": "string"},
+                "content_status": {"type": "string"},
+                "reference_url": {"type": "string"},
+            }
+        )
+
+    if tool_name == "list_document_page_images":
+        properties.update(
+            {
+                "document_id": {"type": "string"},
+                "page_count": {"type": "integer"},
+                "page_image_count": {"type": "integer"},
+                "page_images": {"type": "array", "items": {"type": "integer"}},
+            }
+        )
+
+    if tool_name == "list_document_originals":
+        properties.update(
+            {
+                "document_id": {"type": "string"},
+                "originals": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+            }
+        )
+
+    if tool_name == "get_document_toc":
+        properties.update(
+            {
+                "document_id": {"type": "string"},
+                "toc": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                **RESOURCE_OUTPUT_PROPERTIES,
+            }
+        )
+
+    if tool_name == "get_document_content":
+        properties.update(
+            {
+                "document_id": {"type": "string"},
+                "content_sections": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                "max_characters": {"type": "integer"},
+                "character_limit_reached": {"type": "boolean"},
+                "next_offset": {"type": "integer"},
+                **RESOURCE_OUTPUT_PROPERTIES,
+                **CREDIT_OUTPUT_PROPERTIES,
+            }
+        )
+
+    if tool_name in {"list_news", "search_documents", "search_news"}:
+        properties.update(CREDIT_OUTPUT_PROPERTIES)
+
+    if tool_name in {"get_document_page_image", "get_document_original"}:
+        properties.update(
+            {
+                "document_id": {"type": "string"},
+                "file_path": {"type": "string"},
+                "media_type": {"type": "string"},
+                "page_number": {"type": "integer"},
+                "original_id": {"type": "string"},
+                "filename": {"type": "string"},
+                **RESOURCE_OUTPUT_PROPERTIES,
+                **CREDIT_OUTPUT_PROPERTIES,
+            }
+        )
+
+    if tool_name == "list_cached_resources":
+        properties["resources"] = {"type": "array", "items": {"type": "object", "additionalProperties": True}}
+
+    if tool_name == "list_skills":
+        properties["skills"] = {"type": "array", "items": {"type": "object", "additionalProperties": True}}
+
+    if tool_name == "get_skill":
+        properties.update(
+            {
+                "id": {"type": "string"},
+                "title": {"type": "string"},
+                "resource_uri": {"type": "string"},
+                "content": {"type": "string"},
+            }
+        )
+
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }

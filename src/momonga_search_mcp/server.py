@@ -22,7 +22,7 @@ from momonga_search_mcp.tools.definitions import tool_definitions
 from momonga_search_mcp.tools.handlers import call_tool
 
 JSONRPC_VERSION = "2.0"
-MCP_PROTOCOL_VERSION = "2024-11-05"
+MCP_PROTOCOL_VERSION = "2025-11-25"
 SERVER_NAME = "momonga-search-mcp"
 SERVER_VERSION = "0.1.0"
 
