@@ -186,6 +186,36 @@ class CacheManagerTests(unittest.TestCase):
             self.assertIsNone(cache.get_page_image("missing", 1))
             self.assertIsNone(cache.get_original_file("missing", "orig_missing"))
 
+    def test_clear_resources_deletes_cache_files_and_indexes(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache = CacheManager(cache_dir=Path(temp_dir))
+            cache.store_document_toc("doc_123", {"document_id": "doc_123", "toc": []})
+            cache.store_document_section("doc_123", "sec_1", {"section_id": "sec_1"})
+            cache.store_document_section("doc_456", "sec_2", {"section_id": "sec_2"})
+
+            result = cache.clear_resources(document_id="doc_123")
+
+            self.assertEqual(result["resources_deleted"], 2)
+            self.assertIsNone(cache.get_document_toc("doc_123"))
+            self.assertIsNone(cache.get_document_section("doc_123", "sec_1"))
+            self.assertIsNotNone(cache.get_document_section("doc_456", "sec_2"))
+            self.assertEqual(
+                [resource["uri"] for resource in cache.list_json_resources()],
+                ["momonga://documents/doc_456/sections/sec_2"],
+            )
+
+    def test_clear_resources_filters_by_resource_type(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache = CacheManager(cache_dir=Path(temp_dir))
+            cache.store_document_toc("doc_123", {"document_id": "doc_123", "toc": []})
+            cache.store_document_section("doc_123", "sec_1", {"section_id": "sec_1"})
+
+            result = cache.clear_resources(resource_type="section")
+
+            self.assertEqual(result["resources_deleted"], 1)
+            self.assertIsNotNone(cache.get_document_toc("doc_123"))
+            self.assertIsNone(cache.get_document_section("doc_123", "sec_1"))
+
 
 if __name__ == "__main__":
     unittest.main()

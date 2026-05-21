@@ -12,6 +12,7 @@ dependencies = [
 
 [project.scripts]
 momonga-search-mcp = "momonga_search_mcp.server:main"
+momonga-search-mcp-cache = "momonga_search_mcp.cli:main"
 
 [build-system]
 requires = ["setuptools>=77"]

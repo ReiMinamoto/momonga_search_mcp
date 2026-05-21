@@ -79,6 +79,8 @@ Prompts:
 | `MOMONGA_SEARCH_API_KEY` | はい | なし | Momonga Search APIキーです。未設定の場合、サーバーは起動しません。 |
 | `MOMONGA_BASE_URL` | いいえ | `https://api.momongasearch.com/v1` | Momonga Search APIのbase URLです。ステージング環境や専用エンドポイントを使う場合に上書きします。 |
 | `MOMONGA_MCP_CACHE_DIR` | いいえ | `~/.cache/momonga-search-mcp` | MCP側のキャッシュ保存先ディレクトリです。 |
+| `MOMONGA_MCP_CACHE_ENABLED` | いいえ | `true` | `false` にするとTOC/本文のcache hitと保存を無効化します。 |
+| `MOMONGA_MCP_DISABLE_CACHE` | いいえ | なし | `true` / `1` の場合、`MOMONGA_MCP_CACHE_ENABLED=false` と同じです。 |
 | `MOMONGA_MCP_API_TIMEOUT_SECONDS` | いいえ | `30` | Momonga Search APIへのHTTPリクエストtimeout秒数です。 |
 | `MOMONGA_MCP_LOG_LEVEL` | いいえ | `INFO` | ログレベルです。`DEBUG`、`INFO`、`WARNING`、`ERROR` などを指定できます。ログはstderrに出力します。 |
 | `MOMONGA_MCP_MAX_CREDITS_PER_TOOL_CALL` | いいえ | `8` | tool呼び出し1回あたりの最大credit消費量です。 |

@@ -60,7 +60,30 @@ export MOMONGA_MCP_CACHE_DIR=.cache/momonga-search-mcp
 キャッシュを削除する場合:
 
 ```sh
-rm -rf ~/.cache/momonga-search-mcp
+momonga-search-mcp-cache clear
 ```
 
-workspace内へ向けた場合は、指定した `MOMONGA_MCP_CACHE_DIR` を削除してください。
+特定文書や種類だけを削除する場合:
+
+`--resource-type` には次のいずれかを指定できます。
+
+| 値 | 削除対象 |
+| --- | --- |
+| `toc` | document toc |
+| `section` | document section本文 |
+| `page` | page image実体 |
+| `original` | original file実体 |
+
+```sh
+momonga-search-mcp-cache clear --document-id doc_123 --resource-type section
+```
+
+cache hitを使わず常にAPIから取り直したい場合は、次のどちらかを指定します。
+
+```sh
+export MOMONGA_MCP_CACHE_ENABLED=false
+# または
+export MOMONGA_MCP_DISABLE_CACHE=1
+```
+
+このモードではTOC/本文のcache hitと保存を無効化します。page image / original file は明示的なdownload toolなので、file_path返却のため取得した実体ファイルは引き続き保存します。

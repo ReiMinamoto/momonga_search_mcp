@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
 from pathlib import Path
+import shutil
 import sqlite3
 from typing import Any
 from urllib.parse import quote
@@ -331,6 +332,38 @@ class CacheManager:
             return None
         return CachedResource(resource_uri=resource_uri, path=self.cache_dir / row["json_path"]), row["mime_type"]
 
+    def clear_resources(
+        self,
+        *,
+        document_id: str | None = None,
+        resource_type: str | None = None,
+    ) -> dict[str, Any]:
+        if resource_type is not None and resource_type not in {"toc", "section", "page", "original"}:
+            raise ValueError(f"Unknown resource_type: {resource_type}")
+
+        resources = self._resources_to_clear(document_id=document_id, resource_type=resource_type)
+        resource_uris = {item["resource_uri"] for item in resources}
+        file_paths = {self.cache_dir / path for item in resources for path in item["paths"]}
+
+        with self._connect() as connection:
+            if resource_uris:
+                placeholders = ", ".join("?" for _ in resource_uris)
+                connection.execute(f"DELETE FROM json_resources WHERE resource_uri IN ({placeholders})", tuple(resource_uris))
+            self._delete_resource_rows(connection, document_id=document_id, resource_type=resource_type)
+
+        files_deleted = 0
+        for path in file_paths:
+            if path.exists() and path.is_file():
+                path.unlink()
+                files_deleted += 1
+        self._prune_empty_cache_dirs()
+
+        return {
+            "resources_deleted": len(resources),
+            "files_deleted": files_deleted,
+            "cache_dir": str(self.cache_dir),
+        }
+
     def record_api_call(
         self,
         *,
@@ -513,6 +546,76 @@ class CacheManager:
                 (resource_uri, name, description, mime_type, _relative_path(path, self.cache_dir), _now_iso()),
             )
 
+    def _resources_to_clear(self, *, document_id: str | None, resource_type: str | None) -> list[dict[str, Any]]:
+        resources: list[dict[str, Any]] = []
+        types = [resource_type] if resource_type is not None else ["toc", "section", "page", "original"]
+        with self._connect() as connection:
+            if "toc" in types:
+                resources.extend(
+                    {"resource_uri": row["resource_uri"], "paths": [row["toc_path"]]}
+                    for row in connection.execute(
+                        "SELECT resource_uri, toc_path FROM document_tocs" + _document_where(document_id),
+                        (() if document_id is None else (document_id,)),
+                    )
+                )
+            if "section" in types:
+                resources.extend(
+                    {"resource_uri": row["resource_uri"], "paths": [row["content_path"]]}
+                    for row in connection.execute(
+                        "SELECT resource_uri, content_path FROM document_sections" + _document_where(document_id),
+                        (() if document_id is None else (document_id,)),
+                    )
+                )
+            if "page" in types:
+                resources.extend(
+                    {"resource_uri": row["resource_uri"], "paths": [row["file_path"], row["metadata_path"]]}
+                    for row in connection.execute(
+                        "SELECT resource_uri, file_path, metadata_path FROM document_page_images" + _document_where(document_id),
+                        (() if document_id is None else (document_id,)),
+                    )
+                )
+            if "original" in types:
+                resources.extend(
+                    {"resource_uri": row["resource_uri"], "paths": [row["file_path"], row["metadata_path"]]}
+                    for row in connection.execute(
+                        "SELECT resource_uri, file_path, metadata_path FROM document_originals" + _document_where(document_id),
+                        (() if document_id is None else (document_id,)),
+                    )
+                )
+        return resources
+
+    def _delete_resource_rows(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        document_id: str | None,
+        resource_type: str | None,
+    ) -> None:
+        tables = {
+            "toc": "document_tocs",
+            "section": "document_sections",
+            "page": "document_page_images",
+            "original": "document_originals",
+        }
+        types = [resource_type] if resource_type is not None else list(tables)
+        for item_type in types:
+            table = tables[item_type]
+            if document_id is None:
+                connection.execute(f"DELETE FROM {table}")
+            else:
+                connection.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
+
+    def _prune_empty_cache_dirs(self) -> None:
+        if not self.cache_root.exists():
+            return
+        for path in sorted((item for item in self.cache_root.rglob("*") if item.is_dir()), reverse=True):
+            try:
+                path.rmdir()
+            except OSError:
+                pass
+        if self.cache_root.exists() and not any(self.cache_root.iterdir()):
+            shutil.rmtree(self.cache_root)
+
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -520,6 +623,10 @@ def _now_iso() -> str:
 
 def _relative_path(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
+
+
+def _document_where(document_id: str | None) -> str:
+    return "" if document_id is None else " WHERE document_id = ?"
 
 
 def _uri_segment(value: str) -> str:

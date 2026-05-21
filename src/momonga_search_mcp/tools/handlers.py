@@ -118,7 +118,7 @@ def call_tool(
         elif name == "get_document_metadata":
             payload = api_client.get(f"/documents/{_quoted_document_id(arguments)}")
         elif name == "get_document_toc":
-            return _call_get_document_toc(api_client, arguments, cache_manager_getter)
+            return _call_get_document_toc(api_client, arguments, cache_manager_getter, config=config)
         elif name == "list_document_page_images":
             payload = api_client.get(f"/documents/{_quoted_document_id(arguments)}/page-images")
         elif name == "list_document_originals":
@@ -244,19 +244,25 @@ def _call_get_document_toc(
     api_client: MomongaApiClient,
     arguments: dict[str, Any],
     cache_manager_getter: Callable[[], CacheManager] | None,
+    *,
+    config: Config,
 ) -> dict[str, Any]:
     document_id = _required_string(arguments, "document_id")
     if cache_manager_getter is None:
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_toc")
 
     cache_manager = cache_manager_getter()
-    cached_toc = cache_manager.get_document_toc(document_id)
+    cached_toc = cache_manager.get_document_toc(document_id) if config.cache_enabled else None
     if cached_toc is not None:
         payload = cache_manager.read_json(cached_toc)
         return tool_json_result(get_document_toc_response(payload, cached_toc, cache_hit=True))
 
     payload = api_client.get(f"/documents/{_quote_path_component(document_id)}/toc")
-    resource = cache_manager.store_document_toc(document_id, payload)
+    resource = (
+        cache_manager.store_document_toc(document_id, payload)
+        if config.cache_enabled
+        else CachedResource(resource_uri=cache_manager.document_toc_uri(document_id), path=cache_manager.cache_dir)
+    )
     return tool_json_result(get_document_toc_response(payload, resource, cache_hit=False))
 
 
@@ -282,7 +288,7 @@ def _call_get_document_content(
     if cache_manager_getter is None:
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_content")
     cache_manager = cache_manager_getter()
-    if section_ids:
+    if config.cache_enabled and section_ids:
         cached_resources = [cache_manager.get_document_section(document_id, section_id) for section_id in section_ids]
         if all(resource is not None for resource in cached_resources):
             resources = [resource for resource in cached_resources if resource is not None]
@@ -321,9 +327,12 @@ def _call_get_document_content(
                 continue
 
             section_id = _required_string(section, "section_id")
-            section_resources.append(
-                (section, cache_manager.store_document_section(document_id, section_id, section).resource_uri)
+            resource_uri = (
+                cache_manager.store_document_section(document_id, section_id, section).resource_uri
+                if config.cache_enabled
+                else cache_manager.document_section_uri(document_id, section_id)
             )
+            section_resources.append((section, resource_uri))
 
     response = get_document_content_response(
         document_id,
@@ -356,7 +365,7 @@ def _call_get_document_page_image(
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_page_image")
 
     cache_manager = cache_manager_getter()
-    cached = cache_manager.get_page_image(document_id, page_number)
+    cached = cache_manager.get_page_image(document_id, page_number) if config.cache_enabled else None
     if cached is not None:
         response = _download_response(
             "get_document_page_image",
@@ -422,7 +431,7 @@ def _call_get_document_original(
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_original")
 
     cache_manager = cache_manager_getter()
-    cached = cache_manager.get_original_file(document_id, original_id)
+    cached = cache_manager.get_original_file(document_id, original_id) if config.cache_enabled else None
     if cached is not None:
         metadata = cache_manager.read_json(
             CachedResource(resource_uri=cached.resource_uri, path=cached.path.with_name("metadata.json"))
