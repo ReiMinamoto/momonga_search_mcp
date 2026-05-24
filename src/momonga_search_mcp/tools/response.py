@@ -104,9 +104,7 @@ def success_response(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": True,
             **_pick(payload, ("document_id",)),
-            "originals": [
-                _pick(item, ("original_id", "filename", "media_type", "credit_cost")) for item in _list(payload, "originals")
-            ],
+            "originals": [_pick(item, ("original_id", "filename", "media_type")) for item in _list(payload, "originals")],
         }
     if tool_name == "list_news":
         return _results_response(payload, lambda item: _pick(item, LIST_NEWS_FIELDS))

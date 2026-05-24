@@ -9,8 +9,6 @@ from pathlib import Path
 
 DEFAULT_BASE_URL = "https://api.momongasearch.com/v1"
 DEFAULT_CACHE_DIR = Path.home() / ".cache" / "momonga-search-mcp"
-DEFAULT_MAX_CREDITS_PER_TOOL_CALL = 8
-DEFAULT_MAX_CREDITS_PER_SESSION = 30
 DEFAULT_MAX_LIST_LIMIT = 20
 DEFAULT_MAX_SEARCH_TOP_K = 10
 DEFAULT_MAX_SECTIONS_PER_CONTENT_CALL = 3
@@ -31,8 +29,6 @@ class Config:
     api_key: str
     base_url: str = DEFAULT_BASE_URL
     cache_dir: Path = DEFAULT_CACHE_DIR
-    max_credits_per_tool_call: int = DEFAULT_MAX_CREDITS_PER_TOOL_CALL
-    max_credits_per_session: int = DEFAULT_MAX_CREDITS_PER_SESSION
     max_list_limit: int = DEFAULT_MAX_LIST_LIMIT
     max_search_top_k: int = DEFAULT_MAX_SEARCH_TOP_K
     max_sections_per_content_call: int = DEFAULT_MAX_SECTIONS_PER_CONTENT_CALL
@@ -54,16 +50,6 @@ class Config:
             api_key=api_key,
             base_url=_get_str(values, "MOMONGA_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
             cache_dir=Path(_get_str(values, "MOMONGA_MCP_CACHE_DIR", str(DEFAULT_CACHE_DIR))).expanduser(),
-            max_credits_per_tool_call=_get_int(
-                values,
-                "MOMONGA_MCP_MAX_CREDITS_PER_TOOL_CALL",
-                DEFAULT_MAX_CREDITS_PER_TOOL_CALL,
-            ),
-            max_credits_per_session=_get_int(
-                values,
-                "MOMONGA_MCP_MAX_CREDITS_PER_SESSION",
-                DEFAULT_MAX_CREDITS_PER_SESSION,
-            ),
             max_list_limit=_get_int(
                 values,
                 "MOMONGA_MCP_MAX_LIST_LIMIT",

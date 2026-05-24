@@ -13,8 +13,7 @@ Download only files the API reports as available, with explicit user/tool permis
 - Reading `skill://index.json` or calling `list_skills` is required whenever this download workflow is followed alongside any document or news research tools in the same session. The download tools themselves do not enforce the guard, but skipping it will fail the first research call. For pure-download tasks it is still recommended for consistency.
 - Only use this skill when `document_id` is known. If the user gives only an issuer, company name, topic, date range, or document title, switch to `document-research` first to identify the document.
 - Download tools retrieve exactly one target per call: one page image or one original file.
-- `get_document_page_image` costs 1 credit on cache miss. `get_document_original` costs 8 credits on cache miss.
-- Cache hits return local file metadata with `credits_used=0`.
+- Cache hits return local file metadata without calling the API again.
 - The explicit permission flag is a tool argument: `allow_file_download=true`. Without that exact boolean value, download tools must not be called.
 - `allow_file_download` is a tool-level safety flag, not a chat-level consent prompt. If the user's request already implies "download" or "save the file", set the flag without asking them again. Ask only when intent is ambiguous (e.g. the user asked about availability, not retrieval).
 
@@ -25,7 +24,7 @@ Download only files the API reports as available, with explicit user/tool permis
    - For original files, call `list_document_originals`.
    - Only request page numbers or `original_id` values returned by those tools.
    - `list_document_page_images` returns `page_images` as the allowed page number list.
-   - `list_document_originals` returns `originals[].original_id`, `filename`, `media_type`, and `credit_cost`.
+   - `list_document_originals` returns `originals[].original_id`, `filename`, and `media_type`.
 
 2. Require explicit download permission.
    - Call `get_document_page_image` or `get_document_original` only with `allow_file_download=true`.
@@ -34,12 +33,11 @@ Download only files the API reports as available, with explicit user/tool permis
 
 3. Download narrow targets.
    - Download one page or one original per tool call.
-   - Keep the sequence within MCP session credit limits and any user-stated scope.
    - Download only the pages or originals needed for the user request.
-   - If many pages are requested, list availability and ask for a narrower range unless the user has already specified exact pages and the credit budget allows them.
+   - If many pages are requested, list availability and ask for a narrower range unless the user has already specified exact pages.
 
 4. Return download metadata.
-   - Preserve `file_path`, `resource_uri`, `media_type`, `document_id`, `page_number` or `original_id`, `cached`, and `credits_used`.
+   - Preserve `file_path`, `resource_uri`, `media_type`, `document_id`, `page_number` or `original_id`, and `cached`.
    - For originals, preserve `filename` when returned.
    - Do not expect the MCP response to include file bytes or full manifest metadata.
 

@@ -128,19 +128,18 @@ def call_tool(
                 arguments,
                 ("security_codes", "macro_tags", "timeline_since", "timeline_until", "limit", "cursor"),
             )
-            payload, credits_used = _call_credit_api(
+            payload = _call_credit_api(
                 api_client.get,
                 "/news",
                 params,
                 tool_name=name,
-                config=config,
                 cache_manager_getter=cache_manager_getter,
                 session_id=session_id,
             )
         elif name == "get_document_content":
             return _call_get_document_content(api_client, arguments, cache_manager_getter, config=config, session_id=session_id)
         elif name == "search_documents":
-            payload, credits_used = _call_credit_api(
+            payload = _call_credit_api(
                 api_client.post,
                 "/search/documents",
                 _require_arguments(
@@ -158,12 +157,11 @@ def call_tool(
                     ),
                 ),
                 tool_name=name,
-                config=config,
                 cache_manager_getter=cache_manager_getter,
                 session_id=session_id,
             )
         elif name == "search_news":
-            payload, credits_used = _call_credit_api(
+            payload = _call_credit_api(
                 api_client.post,
                 "/search/news",
                 _require_arguments(
@@ -172,7 +170,6 @@ def call_tool(
                     optional=("security_codes", "macro_tags", "timeline_since", "timeline_until", "match_type", "top_k"),
                 ),
                 tool_name=name,
-                config=config,
                 cache_manager_getter=cache_manager_getter,
                 session_id=session_id,
             )
@@ -199,10 +196,6 @@ def call_tool(
         return tool_json_result(api_error_response(exc), is_error=True)
 
     response = success_response(name, payload)
-    if name in CREDIT_COSTS:
-        response["credits_used"] = credits_used
-        if cache_manager_getter is not None:
-            _add_session_credit_fields(response, cache_manager_getter(), config=config, session_id=session_id)
     return tool_json_result(response)
 
 
@@ -302,18 +295,15 @@ def _call_get_document_content(
                 max_chars=config.max_characters_per_content_call,
                 offset=offset,
             )
-            response["credits_used"] = 0
-            _add_session_credit_fields(response, cache_manager, config=config, session_id=session_id)
             return tool_json_result(response)
 
     params = {"sections": section_ids}
     endpoint = f"/documents/{_quote_path_component(document_id)}/content"
-    api_response, credits_used = _call_credit_json_api(
+    api_response = _call_credit_json_api(
         api_client.get_with_usage,
         endpoint,
         params,
         tool_name="get_document_content",
-        config=config,
         cache_manager_getter=cache_manager_getter,
         session_id=session_id,
         valid_actual_credits=CONTENT_CREDIT_COSTS,
@@ -343,8 +333,6 @@ def _call_get_document_content(
         max_chars=config.max_characters_per_content_call,
         offset=offset,
     )
-    response["credits_used"] = credits_used
-    _add_session_credit_fields(response, cache_manager, config=config, session_id=session_id)
     return tool_json_result(response)
 
 
@@ -372,12 +360,10 @@ def _call_get_document_page_image(
             document_id=document_id,
             resource_uri=cached.resource_uri,
             file_path=cached.path,
-            credits_used=0,
             cached=True,
             page_number=page_number,
             media_type="image/jpeg",
         )
-        _add_session_credit_fields(response, cache_manager, config=config, session_id=session_id)
         cache_manager.record_api_call(
             tool_name="get_document_page_image",
             endpoint=f"/documents/{_quote_path_component(document_id)}/pages/{page_number}/image",
@@ -387,11 +373,10 @@ def _call_get_document_page_image(
         return tool_json_result(response)
 
     endpoint = f"/documents/{_quote_path_component(document_id)}/pages/{page_number}/image"
-    binary_response, credits_used = _call_credit_binary_api(
+    binary_response = _call_credit_binary_api(
         api_client.get_binary,
         endpoint,
         tool_name="get_document_page_image",
-        config=config,
         cache_manager_getter=cache_manager_getter,
         session_id=session_id,
     )
@@ -407,12 +392,10 @@ def _call_get_document_page_image(
         document_id=document_id,
         resource_uri=resource.resource_uri,
         file_path=resource.path,
-        credits_used=credits_used,
         cached=False,
         page_number=page_number,
         media_type="image/jpeg",
     )
-    _add_session_credit_fields(response, cache_manager, config=config, session_id=session_id)
     return tool_json_result(response)
 
 
@@ -441,13 +424,11 @@ def _call_get_document_original(
             document_id=document_id,
             resource_uri=cached.resource_uri,
             file_path=cached.path,
-            credits_used=0,
             cached=True,
             original_id=original_id,
             media_type=str(metadata.get("media_type") or "application/octet-stream"),
             filename=str(metadata.get("filename") or cached.path.name),
         )
-        _add_session_credit_fields(response, cache_manager, config=config, session_id=session_id)
         cache_manager.record_api_call(
             tool_name="get_document_original",
             endpoint=f"/documents/{_quote_path_component(document_id)}/originals/{_quote_path_component(original_id)}",
@@ -457,11 +438,10 @@ def _call_get_document_original(
         return tool_json_result(response)
 
     endpoint = f"/documents/{_quote_path_component(document_id)}/originals/{_quote_path_component(original_id)}"
-    binary_response, credits_used = _call_credit_binary_api(
+    binary_response = _call_credit_binary_api(
         api_client.get_binary,
         endpoint,
         tool_name="get_document_original",
-        config=config,
         cache_manager_getter=cache_manager_getter,
         session_id=session_id,
     )
@@ -491,27 +471,12 @@ def _call_get_document_original(
         document_id=document_id,
         resource_uri=resource.resource_uri,
         file_path=resource.path,
-        credits_used=credits_used,
         cached=False,
         original_id=original_id,
         media_type=media_type,
         filename=filename,
     )
-    _add_session_credit_fields(response, cache_manager, config=config, session_id=session_id)
     return tool_json_result(response)
-
-
-def _add_session_credit_fields(
-    response: dict[str, Any],
-    cache_manager: CacheManager,
-    *,
-    config: Config,
-    session_id: str,
-) -> None:
-    session_credits_used = cache_manager.get_session_credits_used(session_id)
-    response["session_credits_used"] = session_credits_used
-    response["session_credit_limit"] = config.max_credits_per_session
-    response["session_credits_remaining"] = max(0, config.max_credits_per_session - session_credits_used)
 
 
 def _call_credit_api(
@@ -520,28 +485,19 @@ def _call_credit_api(
     payload: dict[str, Any],
     *,
     tool_name: str,
-    config: Config,
     cache_manager_getter: Callable[[], CacheManager] | None,
     session_id: str,
-) -> tuple[dict[str, Any], int]:
+) -> dict[str, Any]:
     credits = CREDIT_COSTS[tool_name]
-    if credits > config.max_credits_per_tool_call:
-        raise ValueError(f"{tool_name} would use {credits} credits, exceeding per-call limit {config.max_credits_per_tool_call}")
     if cache_manager_getter is None:
         raise ToolSetupError("cache manager is unavailable; credit accounting cannot proceed without MCP cache_dir")
 
     cache_manager = cache_manager_getter()
-    session_credits = cache_manager.get_session_credits_used(session_id)
-    if session_credits + credits > config.max_credits_per_session:
-        raise ValueError(
-            f"{tool_name} would use {credits} credits, exceeding session limit "
-            f"{config.max_credits_per_session} with {session_credits} already used"
-        )
 
     response = api_call(endpoint, payload)
     cache_manager.record_session_credits(session_id, credits)
     cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=credits)
-    return response, credits
+    return response
 
 
 def _call_credit_json_api(
@@ -550,26 +506,15 @@ def _call_credit_json_api(
     payload: dict[str, Any],
     *,
     tool_name: str,
-    config: Config,
     cache_manager_getter: Callable[[], CacheManager] | None,
     session_id: str,
     valid_actual_credits: set[int] | None = None,
-) -> tuple[JsonApiResponse, int]:
+) -> JsonApiResponse:
     max_credits = CREDIT_COSTS[tool_name]
-    if max_credits > config.max_credits_per_tool_call:
-        raise ValueError(
-            f"{tool_name} would use {max_credits} credits, exceeding per-call limit {config.max_credits_per_tool_call}"
-        )
     if cache_manager_getter is None:
         raise ToolSetupError("cache manager is unavailable; credit accounting cannot proceed without MCP cache_dir")
 
     cache_manager = cache_manager_getter()
-    session_credits = cache_manager.get_session_credits_used(session_id)
-    if session_credits + max_credits > config.max_credits_per_session:
-        raise ValueError(
-            f"{tool_name} would use up to {max_credits} credits, exceeding session limit "
-            f"{config.max_credits_per_session} with {session_credits} already used"
-        )
 
     response = api_call(endpoint, payload)
     actual_credits = response.inferred_compute_credits
@@ -577,7 +522,7 @@ def _call_credit_json_api(
         actual_credits = max_credits
     cache_manager.record_session_credits(session_id, actual_credits)
     cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=actual_credits)
-    return response, actual_credits
+    return response
 
 
 def _call_credit_binary_api(
@@ -585,28 +530,19 @@ def _call_credit_binary_api(
     endpoint: str,
     *,
     tool_name: str,
-    config: Config,
     cache_manager_getter: Callable[[], CacheManager] | None,
     session_id: str,
-) -> tuple[Any, int]:
+) -> Any:
     credits = CREDIT_COSTS[tool_name]
-    if credits > config.max_credits_per_tool_call:
-        raise ValueError(f"{tool_name} would use {credits} credits, exceeding per-call limit {config.max_credits_per_tool_call}")
     if cache_manager_getter is None:
         raise ToolSetupError("cache manager is unavailable; credit accounting cannot proceed without MCP cache_dir")
 
     cache_manager = cache_manager_getter()
-    session_credits = cache_manager.get_session_credits_used(session_id)
-    if session_credits + credits > config.max_credits_per_session:
-        raise ValueError(
-            f"{tool_name} would use {credits} credits, exceeding session limit "
-            f"{config.max_credits_per_session} with {session_credits} already used"
-        )
 
     response = api_call(endpoint)
     cache_manager.record_session_credits(session_id, credits)
     cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=credits)
-    return response, credits
+    return response
 
 
 def _require_download_flags(arguments: dict[str, Any]) -> None:
@@ -620,7 +556,6 @@ def _download_response(
     document_id: str,
     resource_uri: str,
     file_path: Any,
-    credits_used: int,
     cached: bool,
     page_number: int | None = None,
     original_id: str | None = None,
@@ -633,7 +568,6 @@ def _download_response(
         "file_path": str(file_path),
         "resource_uri": resource_uri,
         "media_type": media_type,
-        "credits_used": credits_used,
         "cached": cached,
     }
     if tool_name == "get_document_page_image":

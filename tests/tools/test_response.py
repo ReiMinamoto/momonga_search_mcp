@@ -176,7 +176,6 @@ class ToolResponseTests(unittest.TestCase):
                         "original_id": "pdf",
                         "filename": "report.pdf",
                         "media_type": "application/pdf",
-                        "credit_cost": 8,
                     }
                 ],
             },

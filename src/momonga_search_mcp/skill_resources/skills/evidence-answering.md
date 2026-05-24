@@ -21,7 +21,7 @@ Produce concise grounded answers that separate retrieved facts from interpretati
    - Document sections: keep `section_title`, `character_count`, `truncated`, `offset`, and `next_offset` when relevant.
    - News: keep `news_id`, `statement`, `observed_at`, `related_issuers`, `macro_tags`, and `references[]`.
    - Files: keep `document_id`, `file_path`, `resource_uri`, `media_type`, and page/original identifiers.
-   - Credit/limit context: keep `credits_used`, `session_credits_remaining`, `cache_hit`, and `cached` when they affect what was or was not retrieved. `cache_hit` (top-level) means the whole call was served from cache; `cached` (per section/file) means that specific item was served from cache. Do not conflate them when reporting.
+   - Retrieval context: keep `cache_hit` and `cached` when they affect what was or was not retrieved. `cache_hit` (top-level) means the whole call was served from cache; `cached` (per section/file) means that specific item was served from cache. Do not conflate them when reporting.
 
 2. Answer only from retrieved evidence.
    - State when evidence is partial.

@@ -154,7 +154,7 @@ class StdioMCPServer:
                 "Use document tools and news tools separately. Do not perform integrated document/news ranking in the MVP. "
                 "Before retrieving document content, check content_status, read toc when content_status=ready, inspect "
                 "section_id, heading_path, and character_count, and retrieve only necessary sections. Respect MCP-side "
-                "limits for credits, result count, section count, character count, page images, and original files. "
+                "limits for result count, section count, character count, page images, and original files. "
                 "For page images and original files, never auto-download; require allow_file_download=true and return "
                 "file_path, resource_uri, and metadata only. Always preserve evidence identifiers: document_id, section_id, "
                 "news_id, reference_url, and references[]."

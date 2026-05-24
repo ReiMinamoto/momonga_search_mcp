@@ -54,7 +54,7 @@ Find the minimum necessary document evidence and preserve identifiers needed for
 
 6. Retrieve only relevant sections.
    - Use `get_document_content` with selected `section_ids`.
-   - Keep each call within MCP section, credit, and character limits.
+   - Keep each call within MCP section and character limits.
    - Default runtime section limit is 3 per content call (overridable via `MOMONGA_MCP_MAX_SECTIONS_PER_CONTENT_CALL`); schema maximum is 5.
    - The content response may be truncated at the runtime character limit. To continue a truncated section, call again with that section's `next_offset` and exactly one `section_id` (the same one that was truncated). If a later section has `content_omitted=true`, retrieve that section in a new single-section call instead.
    - Use `return_content=false` when the user only needs a reusable resource URI or when content is too large for the immediate answer.

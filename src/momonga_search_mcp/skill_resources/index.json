@@ -13,7 +13,7 @@
     {
       "id": "document-content-retrieval",
       "title": "Document Content Retrieval",
-      "description": "Retrieve known document sections through TOC selection, cache reuse, and credit/character limits.",
+      "description": "Retrieve known document sections through TOC selection, cache reuse, and character limits.",
       "resource_uri": "skill://skills/document-content-retrieval.md",
       "triggers": ["本文", "section", "toc", "document_id", "section_id", "content"],
       "recommended_first_tools": ["get_document_metadata", "get_document_toc", "get_document_content"]

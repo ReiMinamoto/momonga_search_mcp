@@ -11,7 +11,7 @@ Find relevant Momonga news statements and preserve `news_id`, `statement`, `obse
 ## Entry Rules
 
 - Before calling `list_news` or `search_news`, the client must have read `skill://index.json` or called `list_skills`.
-- News tools consume credits: `list_news` and `search_news` each cost 1 credit per API call. News responses are not cached at the API level in the MVP, so every call is billed.
+- News responses are not cached at the API level in the MVP, so repeat calls may return updated results.
 - News results are normalized statements with references, not article bodies and not document sections.
 - `macro_tags` is a closed enum of English labels. Allowed values are exactly: `Economic Indicators`, `Monetary Policy`, `Fiscal Policy`, `Regulatory Policy`, `Trade & Geopolitical Events`, `Financial Stability`, `External Shocks`. Do not invent or translate values (e.g. `金融政策` or `monetary policy` will be rejected).
 

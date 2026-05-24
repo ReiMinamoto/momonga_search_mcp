@@ -16,7 +16,6 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(config.api_key, "ms_test_xxx")
         self.assertEqual(config.base_url, "https://api.momongasearch.com/v1")
-        self.assertEqual(config.max_credits_per_tool_call, 8)
 
     def test_loads_overrides_from_env(self) -> None:
         config = Config.from_env(
@@ -24,14 +23,14 @@ class ConfigTests(unittest.TestCase):
                 "MOMONGA_SEARCH_API_KEY": "ms_test_xxx",
                 "MOMONGA_BASE_URL": "https://example.com/api/",
                 "MOMONGA_MCP_CACHE_DIR": "/tmp/momonga-cache",
-                "MOMONGA_MCP_MAX_CREDITS_PER_TOOL_CALL": "4",
+                "MOMONGA_MCP_MAX_LIST_LIMIT": "4",
                 "MOMONGA_MCP_LOG_LEVEL": "debug",
             }
         )
 
         self.assertEqual(config.base_url, "https://example.com/api")
         self.assertEqual(config.cache_dir, Path("/tmp/momonga-cache"))
-        self.assertEqual(config.max_credits_per_tool_call, 4)
+        self.assertEqual(config.max_list_limit, 4)
         self.assertEqual(config.log_level, "DEBUG")
         self.assertTrue(config.cache_enabled)
 
@@ -61,7 +60,7 @@ class ConfigTests(unittest.TestCase):
             Config.from_env(
                 {
                     "MOMONGA_SEARCH_API_KEY": "ms_test_xxx",
-                    "MOMONGA_MCP_MAX_CREDITS_PER_TOOL_CALL": "many",
+                    "MOMONGA_MCP_MAX_LIST_LIMIT": "many",
                 }
             )
 

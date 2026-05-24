@@ -2,11 +2,11 @@
 
 ## Use When
 
-Use this skill when `document_id` is already known, the user asks to read specific document content, section IDs need validation, or content retrieval may consume credits.
+Use this skill when `document_id` is already known, the user asks to read specific document content, or section IDs need validation.
 
 ## Goal
 
-Retrieve only the document sections needed for the task while preserving `resource_uri` values for reuse. MCP handles local caching and credit accounting; the agent should focus on choosing the right sections and respecting visible limits.
+Retrieve only the document sections needed for the task while preserving `resource_uri` values for reuse. MCP handles local caching; the agent should focus on choosing the right sections and respecting visible limits.
 
 ## Entry Rules
 
@@ -29,7 +29,6 @@ Retrieve only the document sections needed for the task while preserving `resour
 3. Retrieve selected sections.
    - Call `get_document_content` with one to a few relevant `section_ids`.
    - Default runtime section limit is 3 per call (overridable via `MOMONGA_MCP_MAX_SECTIONS_PER_CONTENT_CALL`); schema maximum is 5.
-   - Each content API miss consumes 2 / 4 / 8 credits when MCP can infer actual usage, otherwise up to 8 credits conservatively. Cache hits consume 0 credits.
    - The MCP response is capped by the runtime character limit, default 30,000 characters per call (overridable via `MOMONGA_MCP_MAX_CHARACTERS_PER_CONTENT_CALL`).
    - Use `offset` only to continue a single truncated section.
    - Do not pass multiple section IDs with `offset`.
@@ -41,7 +40,7 @@ Retrieve only the document sections needed for the task while preserving `resour
 
 4. Reuse returned resources.
    - Preserve returned `resource_uri` values.
-   - Preserve `credits_used`, `session_credits_used`, and `session_credits_remaining` when they affect the next step.
+   - Preserve `cache_hit`, per-section `cached`, and continuation fields when they affect the next step.
    - `cache_hit` (top-level) is true when this whole call was served from cache without an API request. `cached` (per section) is true when that specific section was returned from cache rather than freshly fetched. Report them with that distinction; never claim "served from cache" if `cache_hit=false`.
    - A cached response is authoritative for reuse; do not call again just to refresh unless the user explicitly asks.
 
@@ -60,5 +59,5 @@ When content is used in an answer, keep `document_id`, `section_id`, `section_ti
 
 - Do not infer section IDs from headings by hand when TOC is available.
 - Do not retrieve all sections by default.
-- Do not describe MCP cache implementation details to the user; only expose returned `cached`, `resource_uri`, and credit fields when relevant.
+- Do not describe MCP cache implementation details to the user; only expose returned `cached` and `resource_uri` when relevant.
 - Do not use `offset` for pagination across different sections; it is only a character offset within one section.

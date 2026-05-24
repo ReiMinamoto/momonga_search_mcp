@@ -73,7 +73,7 @@ class ToolHandlerTests(unittest.TestCase):
             },
         )
 
-    def test_call_tool_routes_credit_search_and_news_tools(self) -> None:
+    def test_call_tool_routes_metered_search_and_news_tools(self) -> None:
         api_client = FakeApiClient()
         calls = [
             (
@@ -109,9 +109,8 @@ class ToolHandlerTests(unittest.TestCase):
                 self.assertEqual(
                     api_client.calls[-1], ("POST" if name.startswith("search_") else "GET", expected_path, expected_payload)
                 )
-                self.assertEqual(payload["credits_used"], 1)
-                self.assertEqual(payload["session_credit_limit"], 30)
-                self.assertEqual(payload["session_credits_remaining"], 30 - payload["session_credits_used"])
+                self.assertNotIn("credits_used", payload)
+                self.assertNotIn("session_credits_used", payload)
 
             self.assertEqual(cache_manager.get_session_credits_used("default"), 3)
 
@@ -227,8 +226,8 @@ class ToolHandlerTests(unittest.TestCase):
             payload = response["structuredContent"]
             session_credits = cache_manager.get_session_credits_used("default")
 
-        self.assertEqual(payload["credits_used"], 2)
-        self.assertEqual(payload["session_credits_used"], 2)
+        self.assertNotIn("credits_used", payload)
+        self.assertNotIn("session_credits_used", payload)
         self.assertEqual(session_credits, 2)
 
     def test_get_document_content_falls_back_to_max_credits_when_actual_unavailable(self) -> None:
@@ -249,8 +248,8 @@ class ToolHandlerTests(unittest.TestCase):
             payload = response["structuredContent"]
             session_credits = cache_manager.get_session_credits_used("default")
 
-        self.assertEqual(payload["credits_used"], 8)
-        self.assertEqual(payload["session_credits_used"], 8)
+        self.assertNotIn("credits_used", payload)
+        self.assertNotIn("session_credits_used", payload)
         self.assertEqual(session_credits, 8)
 
     def test_get_document_content_quotes_document_id_path_component(self) -> None:
@@ -473,25 +472,6 @@ class ToolHandlerTests(unittest.TestCase):
             self.assertTrue(response["isError"])
             self.assertEqual(payload["error"]["message"], expected_message)
 
-    def test_credit_guard_rejects_session_limit_before_api_call(self) -> None:
-        api_client = FakeApiClient()
-        with TemporaryDirectory() as temp_dir:
-            cache_manager = CacheManager(Path(temp_dir))
-            cache_manager.record_session_credits("session_1", 1)
-
-            response = call_tool(
-                api_client,
-                {"name": "search_documents", "arguments": {"query": "価格転嫁"}},
-                cache_manager_getter=lambda: cache_manager,
-                config=Config(api_key="ms_test_xxx", max_credits_per_session=1),
-                session_id="session_1",
-            )
-
-        payload = response["structuredContent"]
-        self.assertEqual(api_client.calls, [])
-        self.assertTrue(response["isError"])
-        self.assertIn("exceeding session limit 1", payload["error"]["message"])
-
     def test_call_tool_rejects_unknown_arguments(self) -> None:
         response = call_tool(
             FakeApiClient(),
@@ -595,7 +575,7 @@ class ToolHandlerTests(unittest.TestCase):
 
         self.assertEqual(api_client.calls, [("GET_BINARY", "/documents/doc_123/pages/2/image", None)])
         self.assertFalse(payload["cached"])
-        self.assertEqual(payload["credits_used"], 1)
+        self.assertNotIn("credits_used", payload)
         self.assertEqual(payload["page_number"], 2)
         self.assertEqual(payload["media_type"], "image/jpeg")
         self.assertEqual(payload["resource_uri"], "momonga://documents/doc_123/pages/2")
@@ -654,7 +634,7 @@ class ToolHandlerTests(unittest.TestCase):
             ],
         )
         self.assertFalse(payload["cached"])
-        self.assertEqual(payload["credits_used"], 8)
+        self.assertNotIn("credits_used", payload)
         self.assertEqual(payload["original_id"], "pdf")
         self.assertEqual(payload["filename"], "manifest-report.pdf")
         self.assertEqual(payload["media_type"], "application/pdf")
@@ -768,7 +748,7 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(payload["error"]["message"], "list_document_originals did not return filename for original_id")
         self.assertEqual(session_credits, 8)
 
-    def test_file_download_cache_hit_avoids_api_and_credit_use(self) -> None:
+    def test_file_download_cache_hit_avoids_api(self) -> None:
         api_client = FakeApiClient()
         with TemporaryDirectory() as temp_dir:
             cache_manager = CacheManager(Path(temp_dir))
@@ -796,7 +776,7 @@ class ToolHandlerTests(unittest.TestCase):
         payload = response["structuredContent"]
         self.assertEqual(api_client.calls, [])
         self.assertTrue(payload["cached"])
-        self.assertEqual(payload["credits_used"], 0)
+        self.assertNotIn("credits_used", payload)
         self.assertEqual(payload["filename"], "cached.pdf")
         self.assertEqual(payload["media_type"], "application/pdf")
         self.assertNotIn("metadata", payload)

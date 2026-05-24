@@ -46,13 +46,6 @@ BASE_OUTPUT_PROPERTIES: dict[str, Any] = {
     "error": COMMON_ERROR_SCHEMA,
 }
 
-CREDIT_OUTPUT_PROPERTIES: dict[str, Any] = {
-    "credits_used": {"type": "integer"},
-    "session_credits_used": {"type": "integer"},
-    "session_credit_limit": {"type": "integer"},
-    "session_credits_remaining": {"type": "integer"},
-}
-
 RESOURCE_OUTPUT_PROPERTIES: dict[str, Any] = {
     "cache_hit": {"type": "boolean"},
     "cached": {"type": "boolean"},
@@ -203,8 +196,7 @@ ZERO_CREDIT_DOCUMENT_TOOLS: dict[str, dict[str, Any]] = {
 CREDIT_TOOLS: dict[str, dict[str, Any]] = {
     "list_news": {
         "description": (
-            "List news statements with references. Consumes 1 credit per API call. "
-            "Provide at least one of security_codes, macro_tags, or timeline_since."
+            "List news statements with references. Provide at least one of security_codes, macro_tags, or timeline_since."
         ),
         "inputSchema": {
             "type": "object",
@@ -239,7 +231,6 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
     "get_document_content": {
         "description": (
             "Retrieve selected document sections. Only use after get_document_toc or search_documents returns section IDs. "
-            "Consumes 2, 4, or 8 credits per API call when usage can be inferred; otherwise accounts up to 8 credits. Cache hits consume 0 credits. "
             "Returns at most the MCP runtime character limit per call; use next_offset with the same single section_id to continue."
         ),
         "inputSchema": {
@@ -275,9 +266,7 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "get_document_original": {
-        "description": (
-            "Download one original file to the local cache. Consumes 8 credits on cache miss. Requires allow_file_download=true."
-        ),
+        "description": "Download one original file to the local cache. Requires allow_file_download=true.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -290,9 +279,7 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "get_document_page_image": {
-        "description": (
-            "Download one page image to the local cache. Consumes 1 credit on cache miss. Requires allow_file_download=true."
-        ),
+        "description": "Download one page image to the local cache. Requires allow_file_download=true.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -305,9 +292,7 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "search_documents": {
-        "description": (
-            "Search document content. Consumes 1 credit per API call. Use short topic terms or evidence-focused questions."
-        ),
+        "description": "Search document content. Use short topic terms or evidence-focused questions.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -336,9 +321,7 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "search_news": {
-        "description": (
-            "Search news statements. Consumes 1 credit per API call. Keep news separate from document search in the MVP."
-        ),
+        "description": "Search news statements. Keep news separate from document search in the MVP.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -477,12 +460,8 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
                 "max_characters": {"type": "integer"},
                 "character_limit_reached": {"type": "boolean"},
                 **RESOURCE_OUTPUT_PROPERTIES,
-                **CREDIT_OUTPUT_PROPERTIES,
             }
         )
-
-    if tool_name in {"list_news", "search_documents", "search_news"}:
-        properties.update(CREDIT_OUTPUT_PROPERTIES)
 
     if tool_name in {"get_document_page_image", "get_document_original"}:
         properties.update(
@@ -494,7 +473,6 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
                 "original_id": {"type": "string"},
                 "filename": {"type": "string"},
                 **RESOURCE_OUTPUT_PROPERTIES,
-                **CREDIT_OUTPUT_PROPERTIES,
             }
         )
 

@@ -1,6 +1,6 @@
 # Runtime Behavior
 
-この文書は Momonga Search MCP の実行時仕様、credit accounting、cache方針をまとめます。tool response のfieldや API endpoint 対応表は `docs/tool_responses.md` を参照してください。
+この文書は Momonga Search MCP の実行時仕様、内部利用量記録、cache方針をまとめます。tool response のfieldや API endpoint 対応表は `docs/tool_responses.md` を参照してください。
 
 ## 対応範囲
 
@@ -10,9 +10,9 @@
 - tool response: full payloadは `structuredContent` にJSON objectとして返し、`content[].text` は短いsummaryだけを返します。
 - tool metadata: `tools/list` は `title`、`annotations`、主要fieldの `outputSchema` を返します。`outputSchema` はMCP tool responseのトップレベル契約を示すもので、API由来のネストした構造は後方互換性のため緩く扱います。
 
-## Credit accounting
+## 内部利用量記録
 
-MCP側ではcredit消費を保守的に事前会計します。cache hitは `credits_used=0` です。
+MCP側では、API利用量の観測用にtoolごとのcredit目安を内部記録します。この情報はtool responseには含めず、モデルの取得判断には使わせません。
 
 | tool | MCP側のcredit扱い |
 | --- | --- |
@@ -23,9 +23,7 @@ MCP側ではcredit消費を保守的に事前会計します。cache hitは `cre
 | `get_document_page_image` | cache missごとに1 credit |
 | `get_document_original` | cache missごとに8 credits |
 
-`get_document_content` はMomonga Search API側の実消費が本文量で 2 / 4 / 8 credits に変わります。MCP側では、APIレスポンスヘッダーの `x-quota-compute-remaining` 差分から実消費を推定できる場合は `credits_used` と session 累計に実値を記録します。直接の実消費fieldがないため、差分が取れない場合や 2 / 4 / 8 以外の差分になった場合は最大値の8 creditsとして保守的に会計します。
-
-session limit / per-call limit の事前判定は、API call 前に実消費が確定しないため、引き続き最大8 creditsで行います。
+`get_document_content` はMomonga Search API側の実消費が本文量で 2 / 4 / 8 credits に変わります。MCP側では、APIレスポンスヘッダーの `x-quota-compute-remaining` 差分から実消費を推定できる場合は内部記録に実値を使います。直接の実消費fieldがないため、差分が取れない場合や 2 / 4 / 8 以外の差分になった場合は最大値の8 creditsとして記録します。
 
 ## キャッシュ方針
 
