@@ -68,14 +68,14 @@ class ToolDefinitionTests(unittest.TestCase):
             [{"required": ["security_codes"]}, {"required": ["macro_tags"]}, {"required": ["timeline_since"]}],
         )
 
-    def test_result_count_schemas_include_api_maximums(self) -> None:
+    def test_result_count_schemas_use_mcp_runtime_limits(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
 
-        self.assertEqual(schemas["search_issuers"]["properties"]["limit"]["maximum"], 50)
-        self.assertEqual(schemas["list_documents"]["properties"]["limit"]["maximum"], 50)
-        self.assertEqual(schemas["list_news"]["properties"]["limit"]["maximum"], 50)
-        self.assertEqual(schemas["search_documents"]["properties"]["top_k"]["maximum"], 50)
-        self.assertEqual(schemas["search_news"]["properties"]["top_k"]["maximum"], 50)
+        self.assertEqual(schemas["search_issuers"]["properties"]["limit"]["maximum"], 25)
+        self.assertEqual(schemas["list_documents"]["properties"]["limit"]["maximum"], 25)
+        self.assertEqual(schemas["list_news"]["properties"]["limit"]["maximum"], 25)
+        self.assertEqual(schemas["search_documents"]["properties"]["top_k"]["maximum"], 25)
+        self.assertEqual(schemas["search_news"]["properties"]["top_k"]["maximum"], 25)
 
     def test_get_document_content_schema_requires_bounded_sections_and_offset(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
@@ -105,7 +105,7 @@ class ToolDefinitionTests(unittest.TestCase):
 
         self.assertEqual(schemas["list_skills"]["properties"], {})
         self.assertNotIn("required", schemas["list_skills"])
-        self.assertEqual(schemas["list_cached_resources"]["properties"]["limit"]["maximum"], 50)
+        self.assertEqual(schemas["list_cached_resources"]["properties"]["limit"]["maximum"], 25)
         self.assertEqual(
             schemas["list_cached_resources"]["properties"]["resource_type"]["enum"],
             ["toc", "section", "page", "original"],

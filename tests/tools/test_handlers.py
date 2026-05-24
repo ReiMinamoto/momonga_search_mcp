@@ -456,12 +456,12 @@ class ToolHandlerTests(unittest.TestCase):
 
     def test_runtime_limits_reject_large_result_and_section_requests(self) -> None:
         calls = [
-            ("list_documents", {"security_codes": ["8058"], "limit": 21}, "limit must be less than or equal to 20"),
-            ("search_documents", {"query": "価格転嫁", "top_k": 11}, "top_k must be less than or equal to 10"),
+            ("list_documents", {"security_codes": ["8058"], "limit": 26}, "limit must be less than or equal to 25"),
+            ("search_documents", {"query": "価格転嫁", "top_k": 26}, "top_k must be less than or equal to 25"),
             (
                 "get_document_content",
-                {"document_id": "doc_123", "section_ids": ["sec_1", "sec_2", "sec_3", "sec_4"]},
-                "section_ids must contain at most 3 items",
+                {"document_id": "doc_123", "section_ids": ["sec_1", "sec_2", "sec_3", "sec_4", "sec_5", "sec_6"]},
+                "section_ids must contain at most 5 items",
             ),
         ]
 

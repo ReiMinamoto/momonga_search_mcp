@@ -17,15 +17,15 @@ MACRO_TAGS = [
 LIST_LIMIT_SCHEMA = {
     "type": "integer",
     "minimum": 1,
-    "maximum": 50,
-    "description": "Number of items to return. API maximum is 50; MCP default runtime limit is 20.",
+    "maximum": 25,
+    "description": "Number of items to return. MCP runtime limit is 25.",
 }
 
 TOP_K_SCHEMA = {
     "type": "integer",
     "minimum": 1,
-    "maximum": 50,
-    "description": "Number of search results to return. API maximum is 50; MCP default runtime limit is 10.",
+    "maximum": 25,
+    "description": "Number of search results to return. MCP runtime limit is 25.",
 }
 
 COMMON_ERROR_SCHEMA: dict[str, Any] = {
@@ -242,10 +242,7 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
                     "items": {"type": "string"},
                     "minItems": 1,
                     "maxItems": 5,
-                    "description": (
-                        "Required section IDs from get_document_toc or search_documents. "
-                        "API maximum is 5; MCP default runtime limit is 3."
-                    ),
+                    "description": "Required section IDs from get_document_toc or search_documents. MCP runtime limit is 5.",
                 },
                 "offset": {
                     "type": "integer",
@@ -378,8 +375,8 @@ SKILL_HELPER_TOOLS: dict[str, dict[str, Any]] = {
                 "limit": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 50,
-                    "description": "Maximum cached resources to return. API schema maximum is 50; MCP default is 20.",
+                    "maximum": 25,
+                    "description": "Maximum cached resources to return. MCP runtime limit is 25.",
                 },
             },
             "additionalProperties": False,

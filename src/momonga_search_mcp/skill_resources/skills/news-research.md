@@ -22,7 +22,7 @@ Find relevant Momonga news statements and preserve `news_id`, `statement`, `obse
    - Use `search_news` for semantic or keyword lookup.
    - `list_news` requires at least one of `security_codes`, `macro_tags`, or `timeline_since`.
    - Use `timeline_since` and `timeline_until` as filters over news `observed_at`.
-   - Default runtime `limit` is 20 for `list_news` (overridable via `MOMONGA_MCP_MAX_LIST_LIMIT`), and default runtime `top_k` is 10 for `search_news` (overridable via `MOMONGA_MCP_MAX_SEARCH_TOP_K`).
+   - MCP runtime `limit` is 25 for `list_news`, and MCP runtime `top_k` is 25 for `search_news`.
    - Use `next_cursor` only with the same list filters from the previous response.
 
 2. Keep news separate from documents.

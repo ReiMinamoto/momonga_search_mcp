@@ -238,7 +238,7 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 ### 落とす field
 
-`image_role`, `source_route`, `width`, `height` などの詳細 metadata。
+`image_role`, `source_route`
 
 ## `list_document_originals`
 
@@ -273,7 +273,7 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 ### 落とす field
 
-`content_available`, `content_status`, `original_available`, `kind`, `role`, `size_bytes`, `sha256`, `credit_cost` などの補助 metadata。
+`content_available`, `content_status`, `original_available`, `kind`, `role`, `size_bytes`, `sha256`, `credit_cost`
 
 ## `get_document_original`
 
@@ -325,7 +325,7 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 ### 落とす field
 
-実体ファイルの bytes は MCP response に載せません。`list_document_originals` で落としている `kind`, `role`, `size_bytes`, `sha256` などの manifest metadata も返しません。
+元ファイル bytes は MCP response に載せません。ファイルの解析結果もこの tool では返しません。
 
 ## `get_document_page_image`
 
@@ -413,7 +413,7 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 ### 落とす field
 
-`parent_news_id`, `score` など、一覧取得の判断に直接不要な field。
+`parent_news_id`
 
 ## `get_document_content`
 
@@ -448,14 +448,14 @@ API response には document metadata も含まれますが、`get_document_toc`
       "cached": false
     }
   ],
-  "max_characters": 30000,
+  "max_characters": 10000,
   "character_limit_reached": false,
   "cache_hit": false
 }
 ```
 
 `return_content=false` の場合、`content_sections[].content` は返しません。取得した本文は返却有無に関係なく cache に保存します。
-MCP response に含める本文は、サーバ側固定上限の 30000 文字で切り詰めます。
+MCP response に含める本文は、サーバ側固定上限の 10,000 文字で切り詰めます。
 `content_sections[].truncated=true` の場合は、その section に `next_offset` を返します。続きは同じ `document_id`、同じ単一 `section_id`、`offset=content_sections[].next_offset` で取得します。
 複数 section 取得時に tool call 全体の文字数上限へ達し、後続 section の本文を開始できない場合、その section は `content_omitted=true` / `omitted_reason=character_limit_reached` になり、`truncated` と `next_offset` は返しません。その section を読むには、同じ `document_id` とその単一 `section_id` で改めて取得します。
 ### 残す field
@@ -573,7 +573,7 @@ document metadata 系は `list_documents` と同じです。
 
 ### 落とす field
 
-`list_news` と同じです。
+`parent_news_id`, `score` など、検索結果の候補確認後に根拠へ戻るためには直接不要な field。
 
 ## 共通 error response
 

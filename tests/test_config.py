@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from momonga_search_mcp.config import Config, ConfigError
+from momonga_search_mcp.config import API_TIMEOUT_SECONDS, Config, ConfigError
 
 
 class ConfigTests(unittest.TestCase):
@@ -16,6 +16,7 @@ class ConfigTests(unittest.TestCase):
 
         self.assertEqual(config.api_key, "ms_test_xxx")
         self.assertEqual(config.base_url, "https://api.momongasearch.com/v1")
+        self.assertEqual(config.api_timeout_seconds, API_TIMEOUT_SECONDS)
 
     def test_loads_overrides_from_env(self) -> None:
         config = Config.from_env(
@@ -23,14 +24,12 @@ class ConfigTests(unittest.TestCase):
                 "MOMONGA_SEARCH_API_KEY": "ms_test_xxx",
                 "MOMONGA_BASE_URL": "https://example.com/api/",
                 "MOMONGA_MCP_CACHE_DIR": "/tmp/momonga-cache",
-                "MOMONGA_MCP_MAX_LIST_LIMIT": "4",
                 "MOMONGA_MCP_LOG_LEVEL": "debug",
             }
         )
 
         self.assertEqual(config.base_url, "https://example.com/api")
         self.assertEqual(config.cache_dir, Path("/tmp/momonga-cache"))
-        self.assertEqual(config.max_list_limit, 4)
         self.assertEqual(config.log_level, "DEBUG")
         self.assertTrue(config.cache_enabled)
 
@@ -54,15 +53,6 @@ class ConfigTests(unittest.TestCase):
         config = Config.from_env(env)
 
         self.assertFalse(config.cache_enabled)
-
-    def test_rejects_invalid_integer(self) -> None:
-        with self.assertRaisesRegex(ConfigError, "must be an integer"):
-            Config.from_env(
-                {
-                    "MOMONGA_SEARCH_API_KEY": "ms_test_xxx",
-                    "MOMONGA_MCP_MAX_LIST_LIMIT": "many",
-                }
-            )
 
 
 if __name__ == "__main__":

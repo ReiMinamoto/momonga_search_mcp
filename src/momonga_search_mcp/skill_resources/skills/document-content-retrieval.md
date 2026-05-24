@@ -28,8 +28,8 @@ Retrieve only the document sections needed for the task while preserving `resour
 
 3. Retrieve selected sections.
    - Call `get_document_content` with one to a few relevant `section_ids`.
-   - Default runtime section limit is 3 per call (overridable via `MOMONGA_MCP_MAX_SECTIONS_PER_CONTENT_CALL`); schema maximum is 5.
-   - The MCP response is capped by the runtime character limit, default 30,000 characters per call (overridable via `MOMONGA_MCP_MAX_CHARACTERS_PER_CONTENT_CALL`).
+   - MCP runtime section limit is 5 per call.
+   - The MCP response is capped by the runtime character limit, 10,000 characters per call.
    - Use `offset` only to continue a single truncated section.
    - Do not pass multiple section IDs with `offset`.
    - When a section response has `truncated=true`, continue with that section's `next_offset` and the same single `section_id`.

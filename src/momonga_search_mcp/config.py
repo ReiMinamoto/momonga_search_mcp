@@ -9,13 +9,11 @@ from pathlib import Path
 
 DEFAULT_BASE_URL = "https://api.momongasearch.com/v1"
 DEFAULT_CACHE_DIR = Path.home() / ".cache" / "momonga-search-mcp"
-DEFAULT_MAX_LIST_LIMIT = 20
-DEFAULT_MAX_SEARCH_TOP_K = 10
-DEFAULT_MAX_SECTIONS_PER_CONTENT_CALL = 3
-DEFAULT_MAX_CHARACTERS_PER_CONTENT_CALL = 30_000
-DEFAULT_MAX_PAGE_IMAGES_PER_CALL = 3
-DEFAULT_MAX_ORIGINAL_FILES_PER_CALL = 1
-DEFAULT_API_TIMEOUT_SECONDS = 30
+MAX_LIST_LIMIT = 25
+MAX_SEARCH_TOP_K = 25
+MAX_SECTIONS_PER_CONTENT_CALL = 5
+MAX_CHARACTERS_PER_CONTENT_CALL = 10_000
+API_TIMEOUT_SECONDS = 15
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_CACHE_ENABLED = True
 
@@ -29,13 +27,11 @@ class Config:
     api_key: str
     base_url: str = DEFAULT_BASE_URL
     cache_dir: Path = DEFAULT_CACHE_DIR
-    max_list_limit: int = DEFAULT_MAX_LIST_LIMIT
-    max_search_top_k: int = DEFAULT_MAX_SEARCH_TOP_K
-    max_sections_per_content_call: int = DEFAULT_MAX_SECTIONS_PER_CONTENT_CALL
-    max_characters_per_content_call: int = DEFAULT_MAX_CHARACTERS_PER_CONTENT_CALL
-    max_page_images_per_call: int = DEFAULT_MAX_PAGE_IMAGES_PER_CALL
-    max_original_files_per_call: int = DEFAULT_MAX_ORIGINAL_FILES_PER_CALL
-    api_timeout_seconds: int = DEFAULT_API_TIMEOUT_SECONDS
+    max_list_limit: int = MAX_LIST_LIMIT
+    max_search_top_k: int = MAX_SEARCH_TOP_K
+    max_sections_per_content_call: int = MAX_SECTIONS_PER_CONTENT_CALL
+    max_characters_per_content_call: int = MAX_CHARACTERS_PER_CONTENT_CALL
+    api_timeout_seconds: int = API_TIMEOUT_SECONDS
     log_level: str = DEFAULT_LOG_LEVEL
     cache_enabled: bool = DEFAULT_CACHE_ENABLED
 
@@ -50,41 +46,6 @@ class Config:
             api_key=api_key,
             base_url=_get_str(values, "MOMONGA_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
             cache_dir=Path(_get_str(values, "MOMONGA_MCP_CACHE_DIR", str(DEFAULT_CACHE_DIR))).expanduser(),
-            max_list_limit=_get_int(
-                values,
-                "MOMONGA_MCP_MAX_LIST_LIMIT",
-                DEFAULT_MAX_LIST_LIMIT,
-            ),
-            max_search_top_k=_get_int(
-                values,
-                "MOMONGA_MCP_MAX_SEARCH_TOP_K",
-                DEFAULT_MAX_SEARCH_TOP_K,
-            ),
-            max_sections_per_content_call=_get_int(
-                values,
-                "MOMONGA_MCP_MAX_SECTIONS_PER_CONTENT_CALL",
-                DEFAULT_MAX_SECTIONS_PER_CONTENT_CALL,
-            ),
-            max_characters_per_content_call=_get_int(
-                values,
-                "MOMONGA_MCP_MAX_CHARACTERS_PER_CONTENT_CALL",
-                DEFAULT_MAX_CHARACTERS_PER_CONTENT_CALL,
-            ),
-            max_page_images_per_call=_get_int(
-                values,
-                "MOMONGA_MCP_MAX_PAGE_IMAGES_PER_CALL",
-                DEFAULT_MAX_PAGE_IMAGES_PER_CALL,
-            ),
-            max_original_files_per_call=_get_int(
-                values,
-                "MOMONGA_MCP_MAX_ORIGINAL_FILES_PER_CALL",
-                DEFAULT_MAX_ORIGINAL_FILES_PER_CALL,
-            ),
-            api_timeout_seconds=_get_int(
-                values,
-                "MOMONGA_MCP_API_TIMEOUT_SECONDS",
-                DEFAULT_API_TIMEOUT_SECONDS,
-            ),
             log_level=_get_str(values, "MOMONGA_MCP_LOG_LEVEL", DEFAULT_LOG_LEVEL).upper(),
             cache_enabled=_get_cache_enabled(values),
         )
@@ -93,22 +54,6 @@ class Config:
 def _get_str(env: Mapping[str, str], name: str, default: str) -> str:
     value = env.get(name, "").strip()
     return value or default
-
-
-def _get_int(env: Mapping[str, str], name: str, default: int) -> int:
-    value = env.get(name, "").strip()
-    if not value:
-        return default
-
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise ConfigError(f"{name} must be an integer") from exc
-
-    if parsed < 1:
-        raise ConfigError(f"{name} must be greater than zero")
-
-    return parsed
 
 
 def _get_cache_enabled(env: Mapping[str, str]) -> bool:
