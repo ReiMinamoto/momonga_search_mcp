@@ -36,31 +36,18 @@ Find the minimum necessary document evidence and preserve identifiers needed for
    - Prefer short topic terms or specific keywords over long judgment-style questions.
    - Use `lexical` for exact terms and `semantic` for concept lookup. If unsure, pass `match_type="semantic"` explicitly.
    - MCP runtime `top_k` limit is 25.
-   - Results are returned with `matches[]` ordered by `score` (highest first). Pick the top 1–3 matches whose `section_title` / `snippet` clearly align with the question; do not blindly pass every `section_id` to Step 6.
+   - Results are returned with `matches[]` ordered by `score` (highest first). Pick the top 1–3 matches whose `section_title` / `snippet` clearly align with the question; do not blindly hand off every `section_id` to `document-content-retrieval`.
    - If `include_snippet=true`, treat snippets as discovery aids. Retrieve the section before using it as final evidence unless the user only asked for candidate locations.
 
-4. Check document availability.
-   - If the user only asked for document summaries, candidate documents, or candidate locations, skip Steps 4-6 and switch directly to `evidence-answering` using the listing/search results. Do not retrieve content just because a candidate document is `ready`.
-   - If `content_status` is `ready`, continue to the table of contents.
+4. Check document availability and choose the next workflow.
+   - If the user only asked for document summaries, candidate documents, or candidate locations, switch directly to `evidence-answering` using the listing/search results. Do not retrieve content just because a candidate document is `ready`.
+   - If `content_status` is `ready` and the task requires document body evidence, switch to `document-content-retrieval` with the selected `document_id` and any known `matches[].section_id` / `heading_path` / `character_count`.
    - If `content_status` is `pending_release`, do not retrieve content; report the retry timing if provided.
-   - If `content_status` is `external_only`, do not retrieve content; report `reference_url`.
+   - If `content_status` is `external_only`, do not retrieve content through Momonga. If `reference_url` is present, read that external URL with the available browsing/fetch tool before answering; if no `reference_url` is present or it cannot be read, report that limitation.
    - For any other value (or if `content_status` is missing after `get_document_metadata`), do not retrieve content. Report the unknown status to the user and stop document retrieval for this document.
    - `content_status` is normally returned by `list_documents` and `search_documents`. Only call `get_document_metadata` first when it is genuinely missing from those responses.
 
-5. Read the table of contents.
-   - Use `get_document_toc` before selecting sections unless section metadata was already returned by search.
-   - Inspect `section_id`, `heading_path`, and `character_count`.
-   - `get_document_toc` is cache-backed. A `cache_hit=true` result is enough to select sections.
-
-6. Retrieve only relevant sections.
-   - Use `get_document_content` with selected `section_ids`.
-   - Keep each call within MCP section and character limits.
-   - MCP runtime section limit is 5 per content call.
-   - The content response may be truncated at the runtime character limit. To continue a truncated section, call again with that section's `next_offset` and exactly one `section_id` (the same one that was truncated). If a later section has `content_omitted=true`, retrieve that section in a new single-section call instead.
-   - Use `return_content=false` when the user only needs a reusable resource URI or when content is too large for the immediate answer.
-   - Treat cache hits and storage as MCP behavior; as the agent, reuse returned `resource_uri` values when helpful.
-
-7. Switch to `evidence-answering` for the final response.
+5. Switch to `evidence-answering` for the final response.
    - Once retrieval is sufficient, follow the `evidence-answering` skill before composing the answer.
    - Cite the specific `document_id`, `section_id`, `heading_path`, and `reference_url` where applicable.
    - Separate facts retrieved from documents from your interpretation.

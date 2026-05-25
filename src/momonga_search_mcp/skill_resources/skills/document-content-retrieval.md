@@ -19,7 +19,7 @@ Retrieve only the document sections needed for the task while preserving `resour
 1. Confirm the target document.
    - If only a company or topic is known, use `document-research` first.
    - Call `get_document_metadata` only when this session has not already produced a response containing `content_status` for this `document_id`. Do not call it reflexively.
-   - Proceed only when `content_status=ready`. For `pending_release`, report retry timing if available. For `external_only`, use `reference_url` and do not retry content retrieval. For any other value or a missing `content_status`, stop content retrieval and report the status.
+   - Proceed only when `content_status=ready`. For `pending_release`, report retry timing if available. For `external_only`, do not retry content retrieval through Momonga; if `reference_url` is present, read that external URL with the available browsing/fetch tool before answering. If no `reference_url` is present or it cannot be read, report that limitation. For any other value or a missing `content_status`, stop content retrieval and report the status.
 
 2. Read or reuse the table of contents.
    - Call `get_document_toc` unless you already have reliable `section_id`, `heading_path`, and `character_count` from a previous tool result.
@@ -29,6 +29,7 @@ Retrieve only the document sections needed for the task while preserving `resour
 3. Retrieve selected sections.
    - Call `get_document_content` with one to a few relevant `section_ids`.
    - MCP runtime section limit is 5 per call.
+   - If more than 5 relevant sections are needed, split them into multiple `get_document_content` calls. Keep each call focused and within the 10,000 character response cap; retrieve the most relevant batch first.
    - The MCP response is capped by the runtime character limit, 10,000 characters per call.
    - Use `offset` only to continue a single truncated section.
    - Do not pass multiple section IDs with `offset`.
