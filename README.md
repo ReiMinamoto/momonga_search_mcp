@@ -93,8 +93,8 @@ export MOMONGA_SEARCH_API_KEY=ms_live_xxx
 `uv` を使う前提のローカル実行手順です。
 
 ```sh
-git clone https://github.com/<owner>/momonga-search-mcp.git
-cd momonga-search-mcp
+git clone https://github.com/ReiMinamoto/momonga_search_mcp.git
+cd momonga_search_mcp
 uv sync --dev
 cp .env.example .env
 ```

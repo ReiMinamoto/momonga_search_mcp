@@ -418,7 +418,7 @@ API response には document metadata も含まれますが、`get_document_toc`
 ## `get_document_content`
 
 指定した section の本文を取得します。API の `content_sections` を MCP response でも使います。
-`section_ids` は必須で、全文取得はこの tool では行いません。
+小さい文書は `section_ids` を省略して全文取得できます。この場合、MCP response では全文を `section_id="__mcp_full_document__"` の synthetic section として返します。
 
 対応エンドポイント: `GET /v1/documents/{document_id}/content`
 
@@ -426,8 +426,8 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 | Tool parameter | API parameter | 理由 |
 | --- | --- | --- |
-| `section_ids` | `sections` | 必須。1〜5件。MCP tool 側では ID 配列であることを明確にするため。API 呼び出し時に `sections` query parameter に変換します。 |
-| `offset` | なし | `truncated=true` の section の続き取得に使う文字 offset。通常は省略します。指定時は `section_ids` を1件だけ渡します。 |
+| `section_ids` | `sections` | 任意。指定時は1〜5件。MCP tool 側では ID 配列であることを明確にするため。API 呼び出し時に `sections` query parameter に変換します。省略時は全文取得です。 |
+| `offset` | なし | `truncated=true` の section の続き取得に使う文字 offset。通常は省略します。指定時は `section_ids` を1件だけ渡します。全文取得の続きでは `section_ids` を省略したまま同じ `offset` を使います。 |
 | `return_content` | なし | MCP response に本文を含めるかを制御する MCP 専用 parameter。API から取得した本文は、返却有無に関係なく cache に保存します。 |
 
 ### 返り値
@@ -445,6 +445,30 @@ API response には document metadata も含まれますが、`get_document_toc`
       "truncated": false,
       "offset": 0,
       "resource_uri": "momonga://documents/doc_123/sections/sec_1",
+      "cached": false
+    }
+  ],
+  "max_characters": 10000,
+  "character_limit_reached": false,
+  "cache_hit": false
+}
+```
+
+`section_ids` 省略時は、全文を synthetic section として返します。
+
+```json
+{
+  "ok": true,
+  "document_id": "doc_123",
+  "content_sections": [
+    {
+      "section_id": "__mcp_full_document__",
+      "section_title": "Full document",
+      "character_count": 9000,
+      "content": "Full document body...",
+      "truncated": false,
+      "offset": 0,
+      "resource_uri": "momonga://documents/doc_123/sections/__mcp_full_document__",
       "cached": false
     }
   ],

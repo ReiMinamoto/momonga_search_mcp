@@ -230,7 +230,8 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
     },
     "get_document_content": {
         "description": (
-            "Retrieve selected document sections. Only use after get_document_toc or search_documents returns section IDs. "
+            "Retrieve selected document sections, or the full document only when metadata shows it is small enough. "
+            "For section retrieval, use section IDs from get_document_toc or search_documents. "
             "Returns at most the MCP runtime character limit per call; use next_offset with the same single section_id to continue."
         ),
         "inputSchema": {
@@ -242,7 +243,11 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
                     "items": {"type": "string"},
                     "minItems": 1,
                     "maxItems": 5,
-                    "description": "Required section IDs from get_document_toc or search_documents. MCP runtime limit is 5.",
+                    "description": (
+                        "Optional section IDs from get_document_toc or search_documents. "
+                        "Omit only when the document metadata character_count is 10,000 characters or fewer. "
+                        "MCP runtime limit is 5."
+                    ),
                 },
                 "offset": {
                     "type": "integer",
@@ -250,7 +255,7 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
                     "description": (
                         "Character offset for continuing a truncated section. "
                         "Omit unless a previous response returned next_offset. "
-                        "When offset is greater than 0, pass exactly one section_id."
+                        "When offset is greater than 0, pass exactly one section_id, or omit section_ids only to continue a cached full-document response."
                     ),
                 },
                 "return_content": {
@@ -258,7 +263,7 @@ CREDIT_TOOLS: dict[str, dict[str, Any]] = {
                     "description": "Whether to include retrieved content in the tool response. Defaults to true.",
                 },
             },
-            "required": ["document_id", "section_ids"],
+            "required": ["document_id"],
             "additionalProperties": False,
         },
     },

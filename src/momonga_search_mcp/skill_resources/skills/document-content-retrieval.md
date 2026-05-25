@@ -22,12 +22,14 @@ Retrieve only the document sections needed for the task while preserving `resour
    - Proceed only when `content_status=ready`. For `pending_release`, report retry timing if available. For `external_only`, do not retry content retrieval through Momonga; if `reference_url` is present, read that external URL with the available browsing/fetch tool before answering. If no `reference_url` is present or it cannot be read, report that limitation. For any other value or a missing `content_status`, stop content retrieval and report the status.
 
 2. Read or reuse the table of contents.
+   - If document metadata shows `character_count` is 10,000 characters or fewer, retrieve the full document by calling `get_document_content` with only `document_id` instead of selecting sections.
    - Call `get_document_toc` unless you already have reliable `section_id`, `heading_path`, and `character_count` from a previous tool result.
    - Use `heading_path` and `character_count` to choose a narrow section set.
    - A cached TOC response with `cache_hit=true` is valid. Do not refresh it unless the user explicitly asks.
 
 3. Retrieve selected sections.
-   - Call `get_document_content` with one to a few relevant `section_ids`.
+   - For larger documents, call `get_document_content` with one to a few relevant `section_ids`.
+   - When multiple relevant sections are needed, sum their `character_count`; if the total is comfortably below 10,000 characters, retrieve them together in one call.
    - MCP runtime section limit is 5 per call.
    - If more than 5 relevant sections are needed, split them into multiple `get_document_content` calls. Keep each call focused and within the 10,000 character response cap; retrieve the most relevant batch first.
    - The MCP response is capped by the runtime character limit, 10,000 characters per call.

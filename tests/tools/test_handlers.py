@@ -429,13 +429,34 @@ class ToolHandlerTests(unittest.TestCase):
             self.assertIn("Do not retry", payload["error"]["next_action"])
             self.assertIn("MCP operator", payload["error"]["next_action"])
 
-    def test_get_document_content_requires_section_ids(self) -> None:
-        response = call_tool(FakeApiClient(), {"name": "get_document_content", "arguments": {"document_id": "doc_123"}})
-        payload = response["structuredContent"]
+    def test_get_document_content_allows_full_document_when_section_ids_are_omitted(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {
+            "document_id": "doc_123",
+            "title": "Report",
+            "character_count": 9,
+            "content": "full body",
+            "content_sections": [{"section_id": "ignored", "content": "ignored"}],
+        }
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
 
-        self.assertTrue(response["isError"])
-        self.assertEqual(payload["error"]["code"], "invalid_request")
-        self.assertEqual(payload["error"]["message"], "section_ids is required")
+            response = call_tool(
+                api_client,
+                {"name": "get_document_content", "arguments": {"document_id": "doc_123"}},
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+            payload = response["structuredContent"]
+            cached_section = cache_manager.get_document_section("doc_123", "__mcp_full_document__")
+
+        self.assertEqual(api_client.calls, [("GET", "/documents/doc_123/content", None)])
+        self.assertFalse(payload["cache_hit"])
+        self.assertEqual(payload["content_sections"][0]["section_id"], "__mcp_full_document__")
+        self.assertEqual(payload["content_sections"][0]["section_title"], "Full document")
+        self.assertEqual(payload["content_sections"][0]["character_count"], 9)
+        self.assertEqual(payload["content_sections"][0]["content"], "full body")
+        self.assertIsNotNone(cached_section)
 
     def test_get_document_content_validates_offset_and_section_count(self) -> None:
         invalid_calls = [

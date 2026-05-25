@@ -34,6 +34,7 @@ CREDIT_COSTS = {
     "get_document_original": 8,
 }
 CONTENT_CREDIT_COSTS = {2, 4, 8}
+FULL_DOCUMENT_SECTION_ID = "__mcp_full_document__"
 SKILL_INDEX_GUARDED_TOOLS = {
     "search_issuers",
     "list_documents",
@@ -268,21 +269,22 @@ def _call_get_document_content(
     session_id: str,
 ) -> dict[str, Any]:
     document_id = _required_string(arguments, "document_id")
-    section_ids = arguments["section_ids"]
+    section_ids = arguments.get("section_ids", [])
     if not isinstance(section_ids, list) or not all(isinstance(item, str) and item.strip() for item in section_ids):
         raise ValueError("section_ids must be an array of strings")
     return_content = arguments.get("return_content", True)
     if not isinstance(return_content, bool):
         raise ValueError("return_content must be a boolean")
     offset = arguments.get("offset", 0)
-    if offset > 0 and len(section_ids) != 1:
+    if offset > 0 and len(section_ids) > 1:
         raise ValueError("offset can only be used with exactly one section_id")
 
     if cache_manager_getter is None:
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_content")
     cache_manager = cache_manager_getter()
-    if config.cache_enabled and section_ids:
-        cached_resources = [cache_manager.get_document_section(document_id, section_id) for section_id in section_ids]
+    requested_section_ids = section_ids or [FULL_DOCUMENT_SECTION_ID]
+    if config.cache_enabled and requested_section_ids:
+        cached_resources = [cache_manager.get_document_section(document_id, section_id) for section_id in requested_section_ids]
         if all(resource is not None for resource in cached_resources):
             resources = [resource for resource in cached_resources if resource is not None]
             sections = [cache_manager.read_json(resource) for resource in resources]
@@ -297,7 +299,7 @@ def _call_get_document_content(
             )
             return tool_json_result(response)
 
-    params = {"sections": section_ids}
+    params = {"sections": section_ids} if section_ids else None
     endpoint = f"/documents/{_quote_path_component(document_id)}/content"
     api_response = _call_credit_json_api(
         api_client.get_with_usage,
@@ -309,9 +311,9 @@ def _call_get_document_content(
         valid_actual_credits=CONTENT_CREDIT_COSTS,
     )
     payload = api_response.payload
-    content_sections = payload.get("content_sections")
     section_resources = []
-    if isinstance(content_sections, list):
+    if section_ids and isinstance(payload.get("content_sections"), list):
+        content_sections = payload["content_sections"]
         for section in content_sections:
             if not isinstance(section, dict):
                 continue
@@ -323,6 +325,21 @@ def _call_get_document_content(
                 else cache_manager.document_section_uri(document_id, section_id)
             )
             section_resources.append((section, resource_uri))
+    elif not section_ids:
+        content = payload.get("content")
+        if isinstance(content, str):
+            full_section = {
+                "section_id": FULL_DOCUMENT_SECTION_ID,
+                "section_title": "Full document",
+                "character_count": payload.get("character_count", len(content)),
+                "content": content,
+            }
+            resource_uri = (
+                cache_manager.store_document_section(document_id, FULL_DOCUMENT_SECTION_ID, full_section).resource_uri
+                if config.cache_enabled
+                else cache_manager.document_section_uri(document_id, FULL_DOCUMENT_SECTION_ID)
+            )
+            section_resources.append((full_section, resource_uri))
 
     response = get_document_content_response(
         document_id,

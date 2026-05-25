@@ -126,7 +126,7 @@ class ServerTests(unittest.TestCase):
         content = response["result"]["contents"][0]
         self.assertEqual(content["mimeType"], "text/markdown")
         self.assertIn("# Document Research Skill", content["text"])
-        self.assertIn("Use `get_document_content`", content["text"])
+        self.assertIn("switch to `document-content-retrieval`", content["text"])
 
     def test_momonga_resources_list_and_read_cached_tool_results_without_api_replay(self) -> None:
         api_client = FakeApiClient()
