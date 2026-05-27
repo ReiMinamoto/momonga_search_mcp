@@ -421,8 +421,10 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
                 "title": {"type": "string"},
                 "document_type": {"type": "string"},
                 "issuers": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                "published_at": {"type": "string"},
                 "timeline_at": {"type": "string"},
                 "content_status": {"type": "string"},
+                "character_count": {"type": "integer"},
                 "reference_url": {"type": "string"},
             }
         )

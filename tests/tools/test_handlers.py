@@ -51,7 +51,9 @@ class ToolHandlerTests(unittest.TestCase):
             "title": "Report",
             "document_type": "yuho",
             "issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
+            "published_at": "2026-05-01T00:00:00Z",
             "timeline_at": "2026-05-01T00:00:00Z",
+            "character_count": 9000,
             "reference_url": "https://example.com/report.pdf",
             "internal_extra": "dropped",
         }
@@ -68,7 +70,9 @@ class ToolHandlerTests(unittest.TestCase):
                 "title": "Report",
                 "document_type": "yuho",
                 "issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
+                "published_at": "2026-05-01T00:00:00Z",
                 "timeline_at": "2026-05-01T00:00:00Z",
+                "character_count": 9000,
                 "reference_url": "https://example.com/report.pdf",
             },
         )

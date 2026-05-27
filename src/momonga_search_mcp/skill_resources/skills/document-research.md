@@ -6,7 +6,7 @@ Use this skill for company disclosures, securities reports, earnings releases, I
 
 ## Goal
 
-Find the minimum necessary document evidence and preserve identifiers needed for later verification: `document_id`, `section_id`, `heading_path`, `reference_url`, `timeline_at`, and issuer/security code when available.
+Find the minimum necessary document evidence and preserve identifiers needed for later verification: `document_id`, `section_id`, `heading_path`, `reference_url`, `published_at`, `timeline_at`, and issuer/security code when available.
 
 ## Entry Rules
 
@@ -57,4 +57,4 @@ Find the minimum necessary document evidence and preserve identifiers needed for
 - Do not claim a filing or section was read unless it was retrieved or explicitly present in a tool result.
 - Do not mix news ranking with document ranking unless the user asks for both.
 - Do not fetch broad document content when a TOC or search hit can narrow the section choice.
-- Do not treat `timeline_at` as the official publication time; it is the normalized timeline field used for listing and filtering.
+- Use `published_at` as the document publication time when present. Do not treat `timeline_at` as the official publication time; it is the normalized timeline field used for listing and filtering.

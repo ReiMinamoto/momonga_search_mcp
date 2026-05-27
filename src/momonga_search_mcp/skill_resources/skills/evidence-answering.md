@@ -37,7 +37,7 @@ Produce concise grounded answers that separate retrieved facts from interpretati
 4. Keep citations useful.
    - Include exact identifiers in the answer or a compact evidence list.
    - Do not paste long content when a summary plus identifiers is enough.
-   - Use `observed_at` for news timing and `timeline_at` for document listing/search timing. Do not call either an official publication time unless the retrieved evidence says so.
+   - Use `published_at` as the document publication time when present, `timeline_at` for document listing/search timing, and `observed_at` for news timing. Do not call `timeline_at` or `observed_at` an official publication time unless the retrieved evidence says so.
 
 ## Avoid
 

@@ -54,6 +54,8 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertEqual(tools["search_documents"]["annotations"]["openWorldHint"], True)
         self.assertEqual(tools["list_cached_resources"]["annotations"]["openWorldHint"], False)
         self.assertIn("issuers", tools["get_document_metadata"]["outputSchema"]["properties"])
+        self.assertIn("published_at", tools["get_document_metadata"]["outputSchema"]["properties"])
+        self.assertIn("character_count", tools["get_document_metadata"]["outputSchema"]["properties"])
         self.assertIn("page_images", tools["list_document_page_images"]["outputSchema"]["properties"])
         self.assertIn("originals", tools["list_document_originals"]["outputSchema"]["properties"])
         self.assertIn("content_sections", tools["get_document_content"]["outputSchema"]["properties"])

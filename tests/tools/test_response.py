@@ -24,6 +24,7 @@ class ToolResponseTests(unittest.TestCase):
                         "timeline_precision": "datetime",
                         "first_observed_at": "2026-05-01T00:00:00Z",
                         "content_status": "ready",
+                        "character_count": 9000,
                         "page_count": 12,
                         "page_image_count": 0,
                         "reference_url": "https://example.com/report.pdf",
@@ -44,8 +45,10 @@ class ToolResponseTests(unittest.TestCase):
                         "title": "Report",
                         "document_type": "yuho",
                         "issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
+                        "published_at": "2026-05-01T00:00:00Z",
                         "timeline_at": "2026-05-01T00:00:00Z",
                         "content_status": "ready",
+                        "character_count": 9000,
                         "reference_url": "https://example.com/report.pdf",
                     }
                 ],
@@ -64,8 +67,10 @@ class ToolResponseTests(unittest.TestCase):
                         "title": "Report",
                         "document_type": "yuho",
                         "issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
+                        "published_at": "2026-05-01T00:00:00Z",
                         "timeline_at": "2026-05-01T00:00:00Z",
                         "content_status": "ready",
+                        "character_count": 9000,
                         "reference_url": "https://example.com/report.pdf",
                         "first_observed_at": "dropped",
                         "matches": [
@@ -95,8 +100,10 @@ class ToolResponseTests(unittest.TestCase):
                         "title": "Report",
                         "document_type": "yuho",
                         "issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
+                        "published_at": "2026-05-01T00:00:00Z",
                         "timeline_at": "2026-05-01T00:00:00Z",
                         "content_status": "ready",
+                        "character_count": 9000,
                         "reference_url": "https://example.com/report.pdf",
                         "matches": [
                             {

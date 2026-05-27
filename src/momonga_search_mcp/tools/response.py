@@ -13,8 +13,10 @@ DOCUMENT_FIELDS = (
     "title",
     "document_type",
     "issuers",
+    "published_at",
     "timeline_at",
     "content_status",
+    "character_count",
     "reference_url",
 )
 
