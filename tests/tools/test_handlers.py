@@ -6,7 +6,6 @@ import unittest
 
 from momonga_search_mcp.api import MomongaApiError
 from momonga_search_mcp.cache import CacheManager
-from momonga_search_mcp.config import Config
 from momonga_search_mcp.tools.handlers import call_tool
 from tests.tools.fakes import FakeApiClient
 
@@ -285,30 +284,6 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertTrue(response["isError"])
         self.assertEqual(payload["error"]["code"], "server_setup_error")
         self.assertIn("cache manager is unavailable", payload["error"]["message"])
-
-    def test_cache_disabled_bypasses_cached_toc_and_does_not_store_response(self) -> None:
-        api_client = FakeApiClient()
-        api_client.response = {"document_id": "doc_123", "toc": [{"section_id": "fresh"}]}
-        with TemporaryDirectory() as temp_dir:
-            cache_manager = CacheManager(Path(temp_dir))
-            cache_manager.store_document_toc("doc_123", {"document_id": "doc_123", "toc": [{"section_id": "cached"}]})
-
-            response = call_tool(
-                api_client,
-                {"name": "get_document_toc", "arguments": {"document_id": "doc_123"}},
-                cache_manager_getter=lambda: cache_manager,
-                config=Config(api_key="ms_test_xxx", cache_enabled=False),
-            )
-
-            payload = response["structuredContent"]
-            cached_toc = cache_manager.get_document_toc("doc_123")
-            assert cached_toc is not None
-            cached_section_id = cache_manager.read_json(cached_toc)["toc"][0]["section_id"]
-
-        self.assertEqual(api_client.calls, [("GET", "/documents/doc_123/toc", None)])
-        self.assertFalse(payload["cache_hit"])
-        self.assertEqual(payload["toc"][0]["section_id"], "fresh")
-        self.assertEqual(cached_section_id, "cached")
 
     def test_search_document_match_does_not_overwrite_cached_section_resource(self) -> None:
         api_client = FakeApiClient()

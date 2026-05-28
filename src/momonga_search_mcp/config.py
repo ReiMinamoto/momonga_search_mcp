@@ -15,7 +15,6 @@ MAX_SECTIONS_PER_CONTENT_CALL = 5
 MAX_CHARACTERS_PER_CONTENT_CALL = 10_000
 API_TIMEOUT_SECONDS = 15
 DEFAULT_LOG_LEVEL = "INFO"
-DEFAULT_CACHE_ENABLED = True
 
 
 class ConfigError(RuntimeError):
@@ -33,7 +32,6 @@ class Config:
     max_characters_per_content_call: int = MAX_CHARACTERS_PER_CONTENT_CALL
     api_timeout_seconds: int = API_TIMEOUT_SECONDS
     log_level: str = DEFAULT_LOG_LEVEL
-    cache_enabled: bool = DEFAULT_CACHE_ENABLED
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Config:
@@ -47,28 +45,9 @@ class Config:
             base_url=_get_str(values, "MOMONGA_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
             cache_dir=Path(_get_str(values, "MOMONGA_MCP_CACHE_DIR", str(DEFAULT_CACHE_DIR))).expanduser(),
             log_level=_get_str(values, "MOMONGA_MCP_LOG_LEVEL", DEFAULT_LOG_LEVEL).upper(),
-            cache_enabled=_get_cache_enabled(values),
         )
 
 
 def _get_str(env: Mapping[str, str], name: str, default: str) -> str:
     value = env.get(name, "").strip()
     return value or default
-
-
-def _get_cache_enabled(env: Mapping[str, str]) -> bool:
-    disabled = env.get("MOMONGA_MCP_DISABLE_CACHE", "").strip()
-    if disabled:
-        return not _parse_bool(disabled, "MOMONGA_MCP_DISABLE_CACHE")
-    return _parse_bool(env.get("MOMONGA_MCP_CACHE_ENABLED", ""), "MOMONGA_MCP_CACHE_ENABLED", default=DEFAULT_CACHE_ENABLED)
-
-
-def _parse_bool(value: str, name: str, *, default: bool | None = None) -> bool:
-    normalized = value.strip().lower()
-    if not normalized and default is not None:
-        return default
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    raise ConfigError(f"{name} must be a boolean")

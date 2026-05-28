@@ -31,28 +31,6 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.base_url, "https://example.com/api")
         self.assertEqual(config.cache_dir, Path("/tmp/momonga-cache"))
         self.assertEqual(config.log_level, "DEBUG")
-        self.assertTrue(config.cache_enabled)
-
-    def test_cache_can_be_disabled_from_env(self) -> None:
-        env = {
-            "MOMONGA_SEARCH_API_KEY": "ms_test_xxx",
-            "MOMONGA_MCP_CACHE_ENABLED": "false",
-        }
-
-        config = Config.from_env(env)
-
-        self.assertFalse(config.cache_enabled)
-
-    def test_disable_cache_env_takes_precedence(self) -> None:
-        env = {
-            "MOMONGA_SEARCH_API_KEY": "ms_test_xxx",
-            "MOMONGA_MCP_CACHE_ENABLED": "true",
-            "MOMONGA_MCP_DISABLE_CACHE": "1",
-        }
-
-        config = Config.from_env(env)
-
-        self.assertFalse(config.cache_enabled)
 
 
 if __name__ == "__main__":
