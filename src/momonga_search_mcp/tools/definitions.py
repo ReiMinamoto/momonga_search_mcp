@@ -110,7 +110,7 @@ TOOL_ARGUMENT_ALTERNATIVES: dict[str, list[dict[str, list[str]]]] = {
     ],
 }
 
-ZERO_CREDIT_DOCUMENT_TOOLS: dict[str, dict[str, Any]] = {
+DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
     "search_issuers": {
         "description": "Search issuers by company name or security code.",
         "inputSchema": {
@@ -193,7 +193,7 @@ ZERO_CREDIT_DOCUMENT_TOOLS: dict[str, dict[str, Any]] = {
     },
 }
 
-CREDIT_TOOLS: dict[str, dict[str, Any]] = {
+RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
     "list_news": {
         "description": (
             "List news statements with references. Provide at least one of security_codes, macro_tags, or timeline_since."
@@ -391,7 +391,7 @@ SKILL_HELPER_TOOLS: dict[str, dict[str, Any]] = {
 
 
 def tool_definitions() -> list[dict[str, Any]]:
-    tools = {**ZERO_CREDIT_DOCUMENT_TOOLS, **CREDIT_TOOLS, **SKILL_HELPER_TOOLS}
+    tools = {**DOCUMENT_LOOKUP_TOOLS, **RETRIEVAL_TOOLS, **SKILL_HELPER_TOOLS}
     return [
         {
             "name": name,

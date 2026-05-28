@@ -7,7 +7,6 @@ import json
 import logging
 import sys
 from typing import Any, TextIO
-from uuid import uuid4
 
 from dotenv import load_dotenv
 
@@ -43,7 +42,6 @@ class StdioMCPServer:
         self.output_stream = sys.stdout if output_stream is None else output_stream
         self.api_client = MomongaApiClient(config) if api_client is None else api_client
         self.cache_manager = cache_manager
-        self.session_id = uuid4().hex
         self.skill_index_seen = False
 
     def serve_forever(self) -> None:
@@ -101,7 +99,6 @@ class StdioMCPServer:
                 params,
                 cache_manager_getter=self._cache_manager,
                 config=self.config,
-                session_id=self.session_id,
                 skill_index_seen=self.skill_index_seen,
             )
             if isinstance(params, dict) and params.get("name") in {"list_skills", "get_skill"} and not result.get("isError"):

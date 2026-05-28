@@ -6,15 +6,15 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
 
-from momonga_search_mcp.api import JsonApiResponse, MomongaApiClient, MomongaApiError, api_error_response
+from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
 from momonga_search_mcp.cache import CachedResource, CacheManager
 from momonga_search_mcp.config import Config
 from momonga_search_mcp.skills import get_skill, list_skills
 from momonga_search_mcp.tools.definitions import (
-    CREDIT_TOOLS,
+    DOCUMENT_LOOKUP_TOOLS,
+    RETRIEVAL_TOOLS,
     SKILL_HELPER_TOOLS,
     TOOL_ARGUMENT_ALTERNATIVES,
-    ZERO_CREDIT_DOCUMENT_TOOLS,
 )
 from momonga_search_mcp.tools.response import (
     get_document_content_response,
@@ -24,16 +24,7 @@ from momonga_search_mcp.tools.response import (
 )
 
 DEFAULT_CONFIG = Config(api_key="")
-TOOL_SCHEMAS = {**ZERO_CREDIT_DOCUMENT_TOOLS, **CREDIT_TOOLS, **SKILL_HELPER_TOOLS}
-CREDIT_COSTS = {
-    "list_news": 1,
-    "get_document_content": 8,
-    "search_documents": 1,
-    "search_news": 1,
-    "get_document_page_image": 1,
-    "get_document_original": 8,
-}
-CONTENT_CREDIT_COSTS = {2, 4, 8}
+TOOL_SCHEMAS = {**DOCUMENT_LOOKUP_TOOLS, **RETRIEVAL_TOOLS, **SKILL_HELPER_TOOLS}
 FULL_DOCUMENT_SECTION_ID = "__mcp_full_document__"
 SKILL_INDEX_GUARDED_TOOLS = {
     "search_issuers",
@@ -59,7 +50,6 @@ def call_tool(
     *,
     cache_manager_getter: Callable[[], CacheManager] | None = None,
     config: Config = DEFAULT_CONFIG,
-    session_id: str = "default",
     skill_index_seen: bool = True,
 ) -> dict[str, Any]:
     if not isinstance(params, dict):
@@ -129,19 +119,11 @@ def call_tool(
                 arguments,
                 ("security_codes", "macro_tags", "timeline_since", "timeline_until", "limit", "cursor"),
             )
-            payload = _call_credit_api(
-                api_client.get,
-                "/news",
-                params,
-                tool_name=name,
-                cache_manager_getter=cache_manager_getter,
-                session_id=session_id,
-            )
+            payload = api_client.get("/news", params)
         elif name == "get_document_content":
-            return _call_get_document_content(api_client, arguments, cache_manager_getter, config=config, session_id=session_id)
+            return _call_get_document_content(api_client, arguments, cache_manager_getter, config=config)
         elif name == "search_documents":
-            payload = _call_credit_api(
-                api_client.post,
+            payload = api_client.post(
                 "/search/documents",
                 _require_arguments(
                     arguments,
@@ -157,29 +139,20 @@ def call_tool(
                         "include_snippet",
                     ),
                 ),
-                tool_name=name,
-                cache_manager_getter=cache_manager_getter,
-                session_id=session_id,
             )
         elif name == "search_news":
-            payload = _call_credit_api(
-                api_client.post,
+            payload = api_client.post(
                 "/search/news",
                 _require_arguments(
                     arguments,
                     ("query",),
                     optional=("security_codes", "macro_tags", "timeline_since", "timeline_until", "match_type", "top_k"),
                 ),
-                tool_name=name,
-                cache_manager_getter=cache_manager_getter,
-                session_id=session_id,
             )
         elif name == "get_document_page_image":
-            return _call_get_document_page_image(
-                api_client, arguments, cache_manager_getter, config=config, session_id=session_id
-            )
+            return _call_get_document_page_image(api_client, arguments, cache_manager_getter, config=config)
         elif name == "get_document_original":
-            return _call_get_document_original(api_client, arguments, cache_manager_getter, config=config, session_id=session_id)
+            return _call_get_document_original(api_client, arguments, cache_manager_getter, config=config)
         else:
             raise ValueError(f"Unhandled tool: {name}")
     except ToolSetupError as exc:
@@ -266,7 +239,6 @@ def _call_get_document_content(
     cache_manager_getter: Callable[[], CacheManager] | None,
     *,
     config: Config,
-    session_id: str,
 ) -> dict[str, Any]:
     document_id = _required_string(arguments, "document_id")
     section_ids = arguments.get("section_ids", [])
@@ -301,16 +273,7 @@ def _call_get_document_content(
 
     params = {"sections": section_ids} if section_ids else None
     endpoint = f"/documents/{_quote_path_component(document_id)}/content"
-    api_response = _call_credit_json_api(
-        api_client.get_with_usage,
-        endpoint,
-        params,
-        tool_name="get_document_content",
-        cache_manager_getter=cache_manager_getter,
-        session_id=session_id,
-        valid_actual_credits=CONTENT_CREDIT_COSTS,
-    )
-    payload = api_response.payload
+    payload = api_client.get(endpoint, params)
     section_resources = []
     if section_ids and isinstance(payload.get("content_sections"), list):
         content_sections = payload["content_sections"]
@@ -359,7 +322,6 @@ def _call_get_document_page_image(
     cache_manager_getter: Callable[[], CacheManager] | None,
     *,
     config: Config,
-    session_id: str,
 ) -> dict[str, Any]:
     _require_download_flags(arguments)
     document_id = _required_string(arguments, "document_id")
@@ -381,22 +343,10 @@ def _call_get_document_page_image(
             page_number=page_number,
             media_type="image/jpeg",
         )
-        cache_manager.record_api_call(
-            tool_name="get_document_page_image",
-            endpoint=f"/documents/{_quote_path_component(document_id)}/pages/{page_number}/image",
-            cache_hit=True,
-            credits_used=0,
-        )
         return tool_json_result(response)
 
     endpoint = f"/documents/{_quote_path_component(document_id)}/pages/{page_number}/image"
-    binary_response = _call_credit_binary_api(
-        api_client.get_binary,
-        endpoint,
-        tool_name="get_document_page_image",
-        cache_manager_getter=cache_manager_getter,
-        session_id=session_id,
-    )
+    binary_response = api_client.get_binary(endpoint)
     image_bytes = binary_response.content
     resource = cache_manager.store_page_image(
         document_id,
@@ -422,7 +372,6 @@ def _call_get_document_original(
     cache_manager_getter: Callable[[], CacheManager] | None,
     *,
     config: Config,
-    session_id: str,
 ) -> dict[str, Any]:
     _require_download_flags(arguments)
     document_id = _required_string(arguments, "document_id")
@@ -446,22 +395,10 @@ def _call_get_document_original(
             media_type=str(metadata.get("media_type") or "application/octet-stream"),
             filename=str(metadata.get("filename") or cached.path.name),
         )
-        cache_manager.record_api_call(
-            tool_name="get_document_original",
-            endpoint=f"/documents/{_quote_path_component(document_id)}/originals/{_quote_path_component(original_id)}",
-            cache_hit=True,
-            credits_used=0,
-        )
         return tool_json_result(response)
 
     endpoint = f"/documents/{_quote_path_component(document_id)}/originals/{_quote_path_component(original_id)}"
-    binary_response = _call_credit_binary_api(
-        api_client.get_binary,
-        endpoint,
-        tool_name="get_document_original",
-        cache_manager_getter=cache_manager_getter,
-        session_id=session_id,
-    )
+    binary_response = api_client.get_binary(endpoint)
     file_bytes = binary_response.content
     filename = binary_response.filename
     media_type = binary_response.media_type
@@ -494,72 +431,6 @@ def _call_get_document_original(
         filename=filename,
     )
     return tool_json_result(response)
-
-
-def _call_credit_api(
-    api_call: Callable[..., dict[str, Any]],
-    endpoint: str,
-    payload: dict[str, Any],
-    *,
-    tool_name: str,
-    cache_manager_getter: Callable[[], CacheManager] | None,
-    session_id: str,
-) -> dict[str, Any]:
-    credits = CREDIT_COSTS[tool_name]
-    if cache_manager_getter is None:
-        raise ToolSetupError("cache manager is unavailable; credit accounting cannot proceed without MCP cache_dir")
-
-    cache_manager = cache_manager_getter()
-
-    response = api_call(endpoint, payload)
-    cache_manager.record_session_credits(session_id, credits)
-    cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=credits)
-    return response
-
-
-def _call_credit_json_api(
-    api_call: Callable[..., JsonApiResponse],
-    endpoint: str,
-    payload: dict[str, Any],
-    *,
-    tool_name: str,
-    cache_manager_getter: Callable[[], CacheManager] | None,
-    session_id: str,
-    valid_actual_credits: set[int] | None = None,
-) -> JsonApiResponse:
-    max_credits = CREDIT_COSTS[tool_name]
-    if cache_manager_getter is None:
-        raise ToolSetupError("cache manager is unavailable; credit accounting cannot proceed without MCP cache_dir")
-
-    cache_manager = cache_manager_getter()
-
-    response = api_call(endpoint, payload)
-    actual_credits = response.inferred_compute_credits
-    if actual_credits is None or (valid_actual_credits is not None and actual_credits not in valid_actual_credits):
-        actual_credits = max_credits
-    cache_manager.record_session_credits(session_id, actual_credits)
-    cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=actual_credits)
-    return response
-
-
-def _call_credit_binary_api(
-    api_call: Callable[..., Any],
-    endpoint: str,
-    *,
-    tool_name: str,
-    cache_manager_getter: Callable[[], CacheManager] | None,
-    session_id: str,
-) -> Any:
-    credits = CREDIT_COSTS[tool_name]
-    if cache_manager_getter is None:
-        raise ToolSetupError("cache manager is unavailable; credit accounting cannot proceed without MCP cache_dir")
-
-    cache_manager = cache_manager_getter()
-
-    response = api_call(endpoint)
-    cache_manager.record_session_credits(session_id, credits)
-    cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=credits)
-    return response
 
 
 def _require_download_flags(arguments: dict[str, Any]) -> None:

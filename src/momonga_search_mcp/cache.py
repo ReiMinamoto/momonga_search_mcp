@@ -364,51 +364,6 @@ class CacheManager:
             "cache_dir": str(self.cache_dir),
         }
 
-    def record_api_call(
-        self,
-        *,
-        tool_name: str,
-        endpoint: str,
-        cache_hit: bool,
-        credits_used: int = 0,
-    ) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO api_calls (tool_name, endpoint, cache_hit, credits_used, called_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (tool_name, endpoint, int(cache_hit), credits_used, _now_iso()),
-            )
-
-    def record_session_credits(self, session_id: str, credits: int) -> None:
-        now = _now_iso()
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO credit_sessions (session_id, credits_used, started_at, updated_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(session_id) DO UPDATE SET
-                    credits_used = credit_sessions.credits_used + excluded.credits_used,
-                    updated_at = excluded.updated_at
-                """,
-                (session_id, credits, now, now),
-            )
-
-    def get_session_credits_used(self, session_id: str) -> int:
-        with self._connect() as connection:
-            row = connection.execute(
-                """
-                SELECT credits_used
-                FROM credit_sessions
-                WHERE session_id = ?
-                """,
-                (session_id,),
-            ).fetchone()
-        if row is None:
-            return 0
-        return int(row["credits_used"])
-
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.db_path)
@@ -475,21 +430,6 @@ class CacheManager:
                     cached_at TEXT NOT NULL
                 );
 
-                CREATE TABLE IF NOT EXISTS api_calls (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    tool_name TEXT NOT NULL,
-                    endpoint TEXT NOT NULL,
-                    cache_hit INTEGER NOT NULL,
-                    credits_used INTEGER NOT NULL,
-                    called_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS credit_sessions (
-                    session_id TEXT PRIMARY KEY,
-                    credits_used INTEGER NOT NULL DEFAULT 0,
-                    started_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
                 """
             )
             connection.execute(

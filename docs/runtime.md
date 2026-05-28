@@ -1,6 +1,6 @@
 # Runtime Behavior
 
-この文書は Momonga Search MCP の実行時仕様、内部利用量記録、cache方針をまとめます。tool response のfieldや API endpoint 対応表は `docs/tool_responses.md` を参照してください。
+この文書は Momonga Search MCP の実行時仕様、固定ガードレール、cache方針をまとめます。tool response のfieldや API endpoint 対応表は `docs/tool_responses.md` を参照してください。
 
 ## 対応範囲
 
@@ -9,21 +9,6 @@
 - Python: `>=3.13`
 - tool response: full payloadは `structuredContent` にJSON objectとして返し、`content[].text` は短いsummaryだけを返します。
 - tool metadata: `tools/list` は `title`、`annotations`、主要fieldの `outputSchema` を返します。`outputSchema` はMCP tool responseのトップレベル契約を示すもので、API由来のネストした構造は後方互換性のため緩く扱います。
-
-## 内部利用量記録
-
-MCP側では、API利用量の観測用にtoolごとのcredit目安を内部記録します。この情報はtool responseには含めず、モデルの取得判断には使わせません。
-
-| tool | MCP側のcredit扱い |
-| --- | --- |
-| `list_news` | API callごとに1 credit |
-| `search_documents` | API callごとに1 credit |
-| `search_news` | API callごとに1 credit |
-| `get_document_content` | API callごとに2 / 4 / 8 credits。実消費を推定できない場合は最大8 creditsとして会計 |
-| `get_document_page_image` | cache missごとに1 credit |
-| `get_document_original` | cache missごとに8 credits |
-
-`get_document_content` はMomonga Search API側の実消費が本文量で 2 / 4 / 8 credits に変わります。MCP側では、APIレスポンスヘッダーの `x-quota-compute-remaining` 差分から実消費を推定できる場合は内部記録に実値を使います。直接の実消費fieldがないため、差分が取れない場合や 2 / 4 / 8 以外の差分になった場合は最大値の8 creditsとして記録します。
 
 ## 固定ガードレール
 

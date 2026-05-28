@@ -79,24 +79,6 @@ class ApiClientTests(unittest.TestCase):
         self.assertEqual(captured["content_type"], "application/json")
         self.assertEqual(captured["data"], b'{"query":"\xe4\xbe\xa1\xe6\xa0\xbc\xe8\xbb\xa2\xe5\xab\x81","top_k":3}')
 
-    def test_get_with_usage_infers_compute_credits_from_quota_header_delta(self) -> None:
-        responses = [
-            FakeResponse(b'{"ok":true}', {"X-Quota-Compute-Remaining": "100"}),
-            FakeResponse(b'{"ok":true}', {"X-Quota-Compute-Remaining": "98"}),
-        ]
-
-        def transport(request: Request, timeout: float) -> FakeResponse:
-            return responses.pop(0)
-
-        client = MomongaApiClient(Config(api_key="ms_test_xxx"), transport)
-
-        first = client.get_with_usage("/documents")
-        second = client.get_with_usage("/documents/doc_1/content", {"sections": ["sec_1"]})
-
-        self.assertIsNone(first.inferred_compute_credits)
-        self.assertEqual(second.inferred_compute_credits, 2)
-        self.assertEqual(second.headers["x-quota-compute-remaining"], "98")
-
     def test_get_binary_returns_bytes_and_response_headers(self) -> None:
         captured: dict[str, object] = {}
 
@@ -210,7 +192,7 @@ class ApiClientTests(unittest.TestCase):
         )
 
     def test_api_error_response_allows_tool_specific_next_action(self) -> None:
-        error = MomongaApiError(status=429, code="quota_exceeded", message="Quota exceeded")
+        error = MomongaApiError(status=429, code="rate_limit_exceeded", message="Rate limit exceeded")
 
         response = api_error_response(error, next_action="Ask the user whether to continue with cached results only.")
 

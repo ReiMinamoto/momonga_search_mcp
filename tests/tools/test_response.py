@@ -167,7 +167,6 @@ class ToolResponseTests(unittest.TestCase):
                         "role": "primary",
                         "size_bytes": 1000,
                         "sha256": "not needed in model context",
-                        "credit_cost": 8,
                     }
                 ],
             },

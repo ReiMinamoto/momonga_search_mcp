@@ -77,7 +77,7 @@ class ToolHandlerTests(unittest.TestCase):
             },
         )
 
-    def test_call_tool_routes_metered_search_and_news_tools(self) -> None:
+    def test_call_tool_routes_search_and_news_tools(self) -> None:
         api_client = FakeApiClient()
         calls = [
             (
@@ -100,23 +100,11 @@ class ToolHandlerTests(unittest.TestCase):
             ),
         ]
 
-        with TemporaryDirectory() as temp_dir:
-            cache_manager = CacheManager(Path(temp_dir))
-
-            for name, arguments, expected_path, expected_payload in calls:
-                response = call_tool(
-                    api_client,
-                    {"name": name, "arguments": arguments},
-                    cache_manager_getter=lambda: cache_manager,
-                )
-                payload = response["structuredContent"]
-                self.assertEqual(
-                    api_client.calls[-1], ("POST" if name.startswith("search_") else "GET", expected_path, expected_payload)
-                )
-                self.assertNotIn("credits_used", payload)
-                self.assertNotIn("session_credits_used", payload)
-
-            self.assertEqual(cache_manager.get_session_credits_used("default"), 3)
+        for name, arguments, expected_path, expected_payload in calls:
+            call_tool(api_client, {"name": name, "arguments": arguments})
+            self.assertEqual(
+                api_client.calls[-1], ("POST" if name.startswith("search_") else "GET", expected_path, expected_payload)
+            )
 
     def test_get_document_toc_stores_response(self) -> None:
         api_client = FakeApiClient()
@@ -210,51 +198,6 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertNotIn("internal_extra", payload["content_sections"][0])
         self.assertNotIn("content", payload["content_sections"][0])
         self.assertIsNotNone(cached_section)
-
-    def test_get_document_content_records_inferred_actual_credits(self) -> None:
-        api_client = FakeApiClient()
-        api_client.inferred_compute_credits = 2
-        api_client.response = {
-            "document_id": "doc_123",
-            "content_sections": [{"section_id": "sec_1", "content": "body"}],
-        }
-        with TemporaryDirectory() as temp_dir:
-            cache_manager = CacheManager(Path(temp_dir))
-
-            response = call_tool(
-                api_client,
-                {"name": "get_document_content", "arguments": {"document_id": "doc_123", "section_ids": ["sec_1"]}},
-                cache_manager_getter=lambda: cache_manager,
-            )
-
-            payload = response["structuredContent"]
-            session_credits = cache_manager.get_session_credits_used("default")
-
-        self.assertNotIn("credits_used", payload)
-        self.assertNotIn("session_credits_used", payload)
-        self.assertEqual(session_credits, 2)
-
-    def test_get_document_content_falls_back_to_max_credits_when_actual_unavailable(self) -> None:
-        api_client = FakeApiClient()
-        api_client.response = {
-            "document_id": "doc_123",
-            "content_sections": [{"section_id": "sec_1", "content": "body"}],
-        }
-        with TemporaryDirectory() as temp_dir:
-            cache_manager = CacheManager(Path(temp_dir))
-
-            response = call_tool(
-                api_client,
-                {"name": "get_document_content", "arguments": {"document_id": "doc_123", "section_ids": ["sec_1"]}},
-                cache_manager_getter=lambda: cache_manager,
-            )
-
-            payload = response["structuredContent"]
-            session_credits = cache_manager.get_session_credits_used("default")
-
-        self.assertNotIn("credits_used", payload)
-        self.assertNotIn("session_credits_used", payload)
-        self.assertEqual(session_credits, 8)
 
     def test_get_document_content_quotes_document_id_path_component(self) -> None:
         api_client = FakeApiClient()
@@ -600,7 +543,6 @@ class ToolHandlerTests(unittest.TestCase):
 
         self.assertEqual(api_client.calls, [("GET_BINARY", "/documents/doc_123/pages/2/image", None)])
         self.assertFalse(payload["cached"])
-        self.assertNotIn("credits_used", payload)
         self.assertEqual(payload["page_number"], 2)
         self.assertEqual(payload["media_type"], "image/jpeg")
         self.assertEqual(payload["resource_uri"], "momonga://documents/doc_123/pages/2")
@@ -619,7 +561,6 @@ class ToolHandlerTests(unittest.TestCase):
                     "kind": "pdf",
                     "role": "primary",
                     "size_bytes": 1000,
-                    "credit_cost": 8,
                     "sha256": "not returned in tool metadata",
                 }
             ],
@@ -659,7 +600,6 @@ class ToolHandlerTests(unittest.TestCase):
             ],
         )
         self.assertFalse(payload["cached"])
-        self.assertNotIn("credits_used", payload)
         self.assertEqual(payload["original_id"], "pdf")
         self.assertEqual(payload["filename"], "manifest-report.pdf")
         self.assertEqual(payload["media_type"], "application/pdf")
@@ -722,7 +662,6 @@ class ToolHandlerTests(unittest.TestCase):
             )
 
             payload = response["structuredContent"]
-            session_credits = cache_manager.get_session_credits_used("default")
 
         self.assertEqual(
             api_client.calls,
@@ -733,7 +672,6 @@ class ToolHandlerTests(unittest.TestCase):
         )
         self.assertTrue(response["isError"])
         self.assertEqual(payload["error"]["message"], "original_id was not returned by list_document_originals")
-        self.assertEqual(session_credits, 8)
 
     def test_get_document_original_requires_manifest_filename_when_fallback_is_needed(self) -> None:
         api_client = FakeApiClient()
@@ -760,7 +698,6 @@ class ToolHandlerTests(unittest.TestCase):
             )
 
             payload = response["structuredContent"]
-            session_credits = cache_manager.get_session_credits_used("default")
 
         self.assertEqual(
             api_client.calls,
@@ -771,7 +708,6 @@ class ToolHandlerTests(unittest.TestCase):
         )
         self.assertTrue(response["isError"])
         self.assertEqual(payload["error"]["message"], "list_document_originals did not return filename for original_id")
-        self.assertEqual(session_credits, 8)
 
     def test_file_download_cache_hit_avoids_api(self) -> None:
         api_client = FakeApiClient()
@@ -801,7 +737,6 @@ class ToolHandlerTests(unittest.TestCase):
         payload = response["structuredContent"]
         self.assertEqual(api_client.calls, [])
         self.assertTrue(payload["cached"])
-        self.assertNotIn("credits_used", payload)
         self.assertEqual(payload["filename"], "cached.pdf")
         self.assertEqual(payload["media_type"], "application/pdf")
         self.assertNotIn("metadata", payload)
@@ -815,7 +750,6 @@ class ToolHandlerTests(unittest.TestCase):
                     "original_id": "pdf",
                     "filename": "manifest.pdf",
                     "media_type": "application/pdf",
-                    "credit_cost": 8,
                 }
             ],
         }

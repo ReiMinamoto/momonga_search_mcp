@@ -50,7 +50,6 @@ class BinaryApiResponse:
 class JsonApiResponse:
     payload: dict[str, Any]
     headers: dict[str, str]
-    inferred_compute_credits: int | None = None
 
 
 class MomongaApiClient:
@@ -59,13 +58,9 @@ class MomongaApiClient:
         self.api_key = config.api_key
         self.timeout_seconds = config.api_timeout_seconds
         self._transport = _default_transport if transport is None else transport
-        self._last_quota_compute_remaining: int | None = None
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.request("GET", path, params=params)
-
-    def get_with_usage(self, path: str, params: dict[str, Any] | None = None) -> JsonApiResponse:
-        return self.request_json_response("GET", path, params=params)
 
     def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.request("POST", path, payload=payload)
@@ -111,24 +106,9 @@ class MomongaApiClient:
                     if hasattr(raw_headers, "items")
                     else {}
                 )
-                compute_remaining = response_headers.get("x-quota-compute-remaining")
-                current_compute_remaining = (
-                    int(compute_remaining) if compute_remaining and compute_remaining.isdecimal() else None
-                )
-                previous_compute_remaining = self._last_quota_compute_remaining
-                if current_compute_remaining is not None:
-                    self._last_quota_compute_remaining = current_compute_remaining
-                inferred_compute_credits = (
-                    previous_compute_remaining - current_compute_remaining
-                    if previous_compute_remaining is not None
-                    and current_compute_remaining is not None
-                    and current_compute_remaining <= previous_compute_remaining
-                    else None
-                )
                 return JsonApiResponse(
                     payload=_decode_json(response.read()),
                     headers=response_headers,
-                    inferred_compute_credits=inferred_compute_credits,
                 )
         except HTTPError as exc:
             raise _api_error_from_http_error(exc) from exc
@@ -303,8 +283,6 @@ def _retry_after_seconds(header_value: str | None, payload: dict[str, Any]) -> i
 def _default_next_action(error: MomongaApiError) -> str:
     if error.retry_after_seconds is not None or error.code in {"rate_limit_exceeded", "rate_limited"}:
         return "Wait for retry_after_seconds before retrying this request."
-    if error.code == "quota_exceeded":
-        return "Stop calling credit-consuming tools for this session unless the user changes quota or task scope."
     if error.code in {"invalid_api_key", "authentication_required", "authentication_failed"}:
         return "Check the Momonga Search API key configuration before retrying."
     if error.code in {"request_timeout", "search_backend_timeout"}:

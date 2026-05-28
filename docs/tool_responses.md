@@ -17,23 +17,23 @@ tool input parameter は、原則として対応エンドポイントの request
 
 ## MCP tool / API endpoint 対応表
 
-MCPは、0-credit APIで候補・取得可否・取得単位を確認し、必要な本文・画像・元ファイルだけcredit APIで取得する前提でtoolを分けています。
+MCPは、候補・取得可否・取得単位の確認と、本文・画像・元ファイルの取得を分けています。
 
-| MCP tool | API endpoint | API credits | MCP cache | 主な注意 |
-| --- | --- | --- | --- | --- |
-| `search_issuers` | `GET /v1/issuers/search` | 0 | no | issuer特定に使います。 |
-| `list_documents` | `GET /v1/documents` | 0 | no | `security_codes` なしの場合は `timeline_since` が必須です。 |
-| `get_document_metadata` | `GET /v1/documents/{document_id}` | 0 | no | `content_status` や取得可否の確認に使います。 |
-| `get_document_toc` | `GET /v1/documents/{document_id}/toc` | 0 | yes | `content_status=ready` の文書で、section IDと取得単位を確認します。 |
-| `list_document_page_images` | `GET /v1/documents/{document_id}/page-images` | 0 | no | page image取得前に利用可能pageを確認します。 |
-| `list_document_originals` | `GET /v1/documents/{document_id}/originals` | 0 | no | original file取得前に `original_id` を確認します。 |
-| `list_news` | `GET /v1/news` | 1/API call | no | newsは記事全文ではなく `statement` + `references[]` です。 |
-| `get_document_content` | `GET /v1/documents/{document_id}/content` | 2/4/8/API call | yes | API実消費は本文量で変わります。MCP側は `x-quota-compute-remaining` 差分から実値を推定し、取れない場合は最大8 creditsとして保守的に会計します。 |
-| `search_documents` | `POST /v1/search/documents` | 1/API call | no | 検索結果は候補です。必要なsection本文は `get_document_content` で取得します。 |
-| `search_news` | `POST /v1/search/news` | 1/API call | no | documents検索とは統合rankingしません。 |
-| `get_document_page_image` | `GET /v1/documents/{document_id}/pages/{page_number}/image` | 1/page | yes | `list_document_page_images` で確認後、必要pageだけ取得します。 |
-| `get_document_original` | `GET /v1/documents/{document_id}/originals/{original_id}` | 8/file | yes | `list_document_originals` で確認後、必要fileだけ取得します。 |
-| `list_cached_resources` | local cache index | 0 | read | cache済みresource URIを確認します。 |
+| MCP tool | API endpoint | MCP cache | 主な注意 |
+| --- | --- | --- | --- |
+| `search_issuers` | `GET /v1/issuers/search` | no | issuer特定に使います。 |
+| `list_documents` | `GET /v1/documents` | no | `security_codes` なしの場合は `timeline_since` が必須です。 |
+| `get_document_metadata` | `GET /v1/documents/{document_id}` | no | `content_status` や取得可否の確認に使います。 |
+| `get_document_toc` | `GET /v1/documents/{document_id}/toc` | yes | `content_status=ready` の文書で、section IDと取得単位を確認します。 |
+| `list_document_page_images` | `GET /v1/documents/{document_id}/page-images` | no | page image取得前に利用可能pageを確認します。 |
+| `list_document_originals` | `GET /v1/documents/{document_id}/originals` | no | original file取得前に `original_id` を確認します。 |
+| `list_news` | `GET /v1/news` | no | newsは記事全文ではなく `statement` + `references[]` です。 |
+| `get_document_content` | `GET /v1/documents/{document_id}/content` | yes | 返却文字数上限を超える場合は `next_offset` で分割取得します。 |
+| `search_documents` | `POST /v1/search/documents` | no | 検索結果は候補です。必要なsection本文は `get_document_content` で取得します。 |
+| `search_news` | `POST /v1/search/news` | no | documents検索とは統合rankingしません。 |
+| `get_document_page_image` | `GET /v1/documents/{document_id}/pages/{page_number}/image` | yes | `list_document_page_images` で確認後、必要pageだけ取得します。 |
+| `get_document_original` | `GET /v1/documents/{document_id}/originals/{original_id}` | yes | `list_document_originals` で確認後、必要fileだけ取得します。 |
+| `list_cached_resources` | local cache index | read | cache済みresource URIを確認します。 |
 
 ## 金融・開示データの扱い
 
@@ -279,13 +279,13 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 ### 落とす field
 
-`content_available`, `content_status`, `original_available`, `kind`, `role`, `size_bytes`, `sha256`, `credit_cost`
+`content_available`, `content_status`, `original_available`, `kind`, `role`, `size_bytes`, `sha256`
 
 ## `get_document_original`
 
 元ファイルを1件取得し、ローカル cache に保存します。
 
-この tool は file download を伴うため、`allow_file_download=true` が必須です。cache hit の場合は API の実体取得を行わず、credit も消費しません。
+この tool は file download を伴うため、`allow_file_download=true` が必須です。cache hit の場合は API の実体取得を行いません。
 
 実体レスポンスの `Content-Disposition` から `filename` が取れない場合、または `Content-Type` が `application/octet-stream` の場合だけ、`GET /v1/documents/{document_id}/originals` を確認して `filename` / `media_type` を補完します。
 
@@ -337,7 +337,7 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 ページ画像を1件取得し、ローカル cache に保存します。
 
-この tool は file download を伴うため、`allow_file_download=true` が必須です。cache hit の場合は API の実体取得を行わず、credit も消費しません。
+この tool は file download を伴うため、`allow_file_download=true` が必須です。cache hit の場合は API の実体取得を行いません。
 
 取得可能な page は、先に `list_document_page_images` で確認します。page image は API 仕様上 JPEG なので、MCP response の `media_type` は `image/jpeg` 固定です。
 
@@ -655,7 +655,6 @@ API error payload のうち、上記以外の metadata、内部 trace、request 
 | Error | `next_action` |
 | --- | --- |
 | rate limit | `retry_after_seconds` を待ってから再試行する。 |
-| quota exceeded | user が quota / task scope を変えるまで credit-consuming tool を止める。 |
 | authentication error | API key 設定を確認する。 |
 | timeout | 短い backoff 後に一度だけ再試行し、続く場合は query / 件数を絞る。 |
 | content not available | 同じ content request を即時再試行せず、`content_status` を見て metadata / reference に切り替える。 |

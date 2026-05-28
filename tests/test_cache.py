@@ -22,8 +22,6 @@ class CacheManagerTests(unittest.TestCase):
         self.assertIn("document_page_images", table_names)
         self.assertIn("document_originals", table_names)
         self.assertIn("json_resources", table_names)
-        self.assertIn("api_calls", table_names)
-        self.assertIn("credit_sessions", table_names)
         self.assertNotIn("document_metadata", table_names)
         self.assertNotIn("news", table_names)
         self.assertNotIn("issuers", table_names)
