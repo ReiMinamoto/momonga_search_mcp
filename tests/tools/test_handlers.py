@@ -295,6 +295,191 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertNotIn("internal_extra", payload["content_sections"][0])
         self.assertNotIn("content", payload["content_sections"][0])
 
+    def test_get_document_content_large_section_returns_manifest_and_caches_body(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {
+            "document_id": "doc_123",
+            "content_sections": [
+                {
+                    "section_id": "sec_1",
+                    "section_title": "Risk",
+                    "character_count": 3001,
+                    "content": "risk " + ("x" * 2996),
+                }
+            ],
+        }
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            response = call_tool(
+                api_client,
+                {
+                    "name": "get_document_content",
+                    "arguments": {"document_id": "doc_123", "section_ids": ["sec_1"]},
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+            payload = response["structuredContent"]
+            cached_section = cache_manager.get_document_section("doc_123", "sec_1")
+            assert cached_section is not None
+            cached_payload = cache_manager.read_json(cached_section)
+
+        section = payload["content_sections"][0]
+        self.assertEqual(section["content_mode"], "manifest")
+        self.assertEqual(section["reason"], "section_exceeds_inline_threshold")
+        self.assertTrue(section["content_available_in_cache"])
+        self.assertEqual(section["recommended_tools"], ["search_section_contents", "get_section_window"])
+        self.assertEqual(section["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
+        self.assertNotIn("content", section)
+        self.assertEqual(cached_payload["content"], "risk " + ("x" * 2996))
+
+    def test_search_section_contents_returns_bounded_matches_from_cache(self) -> None:
+        api_client = FakeApiClient()
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            cache_manager.store_document_section(
+                "doc_123",
+                "sec_1",
+                {
+                    "section_id": "sec_1",
+                    "section_title": "Risk",
+                    "heading_path": ["Business", "Risk"],
+                    "character_count": 70,
+                    "content": "alpha price beta price gamma price delta",
+                },
+            )
+
+            response = call_tool(
+                api_client,
+                {
+                    "name": "search_section_contents",
+                    "arguments": {
+                        "document_id": "doc_123",
+                        "section_id": "sec_1",
+                        "query": "price",
+                        "context_chars": 50,
+                        "max_matches": 2,
+                    },
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+        payload = response["structuredContent"]
+        self.assertEqual(api_client.calls, [])
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["section_title"], "Risk")
+        self.assertEqual(payload["heading_path"], ["Business", "Risk"])
+        self.assertEqual(payload["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
+        self.assertEqual(len(payload["matches"]), 2)
+        self.assertEqual(payload["matches"][0]["offset"], 6)
+        self.assertEqual(payload["matches"][0]["matched_text"], "price")
+        self.assertLessEqual(len(payload["matches"][0]["excerpt"]), len("price") + 100)
+
+    def test_search_section_contents_handles_no_matches(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            cache_manager.store_document_section(
+                "doc_123",
+                "sec_1",
+                {"section_id": "sec_1", "content": "cached body"},
+            )
+
+            response = call_tool(
+                FakeApiClient(),
+                {
+                    "name": "search_section_contents",
+                    "arguments": {"document_id": "doc_123", "section_id": "sec_1", "query": "missing"},
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+        payload = response["structuredContent"]
+        self.assertEqual(payload["matches"], [])
+        self.assertEqual(payload["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
+
+    def test_get_section_window_returns_offsets_and_respects_max_characters(self) -> None:
+        api_client = FakeApiClient()
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            cache_manager.store_document_section(
+                "doc_123",
+                "sec_1",
+                {
+                    "section_id": "sec_1",
+                    "section_title": "Risk",
+                    "heading_path": ["Business", "Risk"],
+                    "content": "0123456789abcdefghij",
+                },
+            )
+
+            response = call_tool(
+                api_client,
+                {
+                    "name": "get_section_window",
+                    "arguments": {
+                        "document_id": "doc_123",
+                        "section_id": "sec_1",
+                        "offset": 10,
+                        "max_characters": 6,
+                    },
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+        payload = response["structuredContent"]
+        self.assertEqual(api_client.calls, [])
+        self.assertEqual(payload["content"], "789abc")
+        self.assertEqual(payload["start_offset"], 7)
+        self.assertEqual(payload["end_offset"], 13)
+        self.assertEqual(payload["actual_characters"], 6)
+        self.assertEqual(payload["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
+        self.assertTrue(payload["truncated"])
+
+    def test_get_section_window_handles_offset_near_edges(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            cache_manager.store_document_section("doc_123", "sec_1", {"section_id": "sec_1", "content": "0123456789"})
+
+            near_start = call_tool(
+                FakeApiClient(),
+                {
+                    "name": "get_section_window",
+                    "arguments": {"document_id": "doc_123", "section_id": "sec_1", "offset": 1, "max_characters": 4},
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )["structuredContent"]
+            near_end = call_tool(
+                FakeApiClient(),
+                {
+                    "name": "get_section_window",
+                    "arguments": {"document_id": "doc_123", "section_id": "sec_1", "offset": 100, "max_characters": 4},
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )["structuredContent"]
+
+        self.assertEqual(near_start["start_offset"], 0)
+        self.assertEqual(near_start["content"], "0123")
+        self.assertEqual(near_end["start_offset"], 6)
+        self.assertEqual(near_end["content"], "6789")
+
+    def test_cached_section_readers_report_uncached_section(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            response = call_tool(
+                FakeApiClient(),
+                {
+                    "name": "search_section_contents",
+                    "arguments": {"document_id": "doc_123", "section_id": "sec_missing", "query": "risk"},
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+        payload = response["structuredContent"]
+        self.assertTrue(response["isError"])
+        self.assertEqual(payload["error"]["code"], "invalid_request")
+        self.assertIn("section content is not cached", payload["error"]["message"])
+
     def test_list_cached_resources_filters_by_document_and_type(self) -> None:
         with TemporaryDirectory() as temp_dir:
             cache_manager = CacheManager(Path(temp_dir))
@@ -381,6 +566,11 @@ class ToolHandlerTests(unittest.TestCase):
             ("get_document_toc", {"document_id": "doc_123"}),
             ("get_document_content", {"document_id": "doc_123", "section_ids": ["sec_1"]}),
             (
+                "search_section_contents",
+                {"document_id": "doc_123", "section_id": "sec_1", "query": "risk"},
+            ),
+            ("get_section_window", {"document_id": "doc_123", "section_id": "sec_1", "offset": 0}),
+            (
                 "get_document_page_image",
                 {"document_id": "doc_123", "page_number": 1, "allow_file_download": True},
             ),
@@ -429,14 +619,10 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(payload["content_sections"][0]["content"], "full body")
         self.assertIsNotNone(cached_section)
 
-    def test_get_document_content_validates_offset_and_section_count(self) -> None:
+    def test_get_document_content_validates_section_count_and_rejects_offset(self) -> None:
         invalid_calls = [
-            ({"document_id": "doc_123", "section_ids": ["sec_1"], "offset": -1}, "offset must be greater than or equal to 0"),
+            ({"document_id": "doc_123", "section_ids": ["sec_1"], "offset": 0}, "unknown arguments: offset"),
             ({"document_id": "doc_123", "section_ids": ["sec_1"] * 6}, "section_ids must contain at most 5 items"),
-            (
-                {"document_id": "doc_123", "section_ids": ["sec_1", "sec_2"], "offset": 100},
-                "offset can only be used with exactly one section_id",
-            ),
         ]
 
         for arguments, expected_message in invalid_calls:

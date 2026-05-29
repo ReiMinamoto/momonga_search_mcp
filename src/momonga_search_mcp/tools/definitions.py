@@ -61,6 +61,8 @@ TOOL_TITLES = {
     "list_document_originals": "List Document Originals",
     "list_news": "List News",
     "get_document_content": "Get Document Content",
+    "search_section_contents": "Search Section Contents",
+    "get_section_window": "Get Section Window",
     "get_document_original": "Get Document Original",
     "get_document_page_image": "Get Document Page Image",
     "search_documents": "Search Documents",
@@ -91,6 +93,8 @@ TOOL_ANNOTATIONS = {
     "list_document_originals": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
     "list_news": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
     "get_document_content": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
+    "search_section_contents": LOCAL_READ_ONLY_ANNOTATIONS,
+    "get_section_window": LOCAL_READ_ONLY_ANNOTATIONS,
     "get_document_original": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
     "get_document_page_image": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
     "search_documents": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
@@ -249,7 +253,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
         "description": (
             "Retrieve selected document sections, or the full document only when metadata shows it is small enough. "
             "For section retrieval, use section IDs from get_document_toc or search_documents. "
-            "Returns at most the MCP runtime character limit per call; use next_offset with the same single section_id to continue."
+            "Small sections may be returned inline; large or over-budget sections are cached and returned as manifests."
         ),
         "inputSchema": {
             "type": "object",
@@ -262,17 +266,8 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
                     "maxItems": 5,
                     "description": (
                         "Optional section IDs from get_document_toc or search_documents. "
-                        "Omit only when the document metadata character_count is 10,000 characters or fewer. "
+                        "Omit only when retrieving the full document as a synthetic cached section is intentional. "
                         "MCP runtime limit is 5."
-                    ),
-                },
-                "offset": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": (
-                        "Character offset for continuing a truncated section. "
-                        "Omit unless a previous response returned next_offset. "
-                        "When offset is greater than 0, pass exactly one section_id, or omit section_ids only to continue a cached full-document response."
                     ),
                 },
                 "return_content": {
@@ -281,6 +276,61 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
                 },
             },
             "required": ["document_id"],
+            "additionalProperties": False,
+        },
+    },
+    "search_section_contents": {
+        "description": (
+            "Search within one cached document section and return short excerpts with offsets. "
+            "Call get_document_content first if the section is not cached."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string"},
+                "section_id": {"type": "string"},
+                "query": {"type": "string"},
+                "match_type": {
+                    "type": "string",
+                    "enum": ["lexical"],
+                    "description": "Search mode. Cached section search currently supports lexical matching.",
+                },
+                "context_chars": {
+                    "type": "integer",
+                    "minimum": 50,
+                    "maximum": 500,
+                    "description": "Characters of context to include on each side of the match. Defaults to 300.",
+                },
+                "max_matches": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 15,
+                    "description": "Maximum matches to return. Defaults to 5.",
+                },
+            },
+            "required": ["document_id", "section_id", "query"],
+            "additionalProperties": False,
+        },
+    },
+    "get_section_window": {
+        "description": (
+            "Return a bounded text window around an offset in one cached document section. "
+            "Use offsets returned by search_section_contents when possible."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "document_id": {"type": "string"},
+                "section_id": {"type": "string"},
+                "offset": {"type": "integer", "minimum": 0},
+                "max_characters": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5000,
+                    "description": "Maximum characters to return. Defaults to 1500.",
+                },
+            },
+            "required": ["document_id", "section_id", "offset"],
             "additionalProperties": False,
         },
     },
@@ -484,9 +534,44 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
             {
                 "document_id": {"type": "string"},
                 "content_sections": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-                "max_characters": {"type": "integer"},
-                "character_limit_reached": {"type": "boolean"},
+                "max_inline_section_characters": {"type": "integer"},
                 **RESOURCE_OUTPUT_PROPERTIES,
+            }
+        )
+
+    if tool_name == "search_section_contents":
+        properties.update(
+            {
+                "document_id": {"type": "string"},
+                "section_id": {"type": "string"},
+                "section_title": {"type": "string"},
+                "heading_path": {"type": "array", "items": {"type": "string"}},
+                "match_type": {"type": "string"},
+                "query": {"type": "string"},
+                "context_chars": {"type": "integer"},
+                "max_matches": {"type": "integer"},
+                "matches": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                "source_resource_uri": {"type": "string"},
+                "cache_hit": {"type": "boolean"},
+            }
+        )
+
+    if tool_name == "get_section_window":
+        properties.update(
+            {
+                "document_id": {"type": "string"},
+                "section_id": {"type": "string"},
+                "section_title": {"type": "string"},
+                "heading_path": {"type": "array", "items": {"type": "string"}},
+                "offset": {"type": "integer"},
+                "start_offset": {"type": "integer"},
+                "end_offset": {"type": "integer"},
+                "actual_characters": {"type": "integer"},
+                "max_characters": {"type": "integer"},
+                "content": {"type": "string"},
+                "truncated": {"type": "boolean"},
+                "source_resource_uri": {"type": "string"},
+                "cache_hit": {"type": "boolean"},
             }
         )
 

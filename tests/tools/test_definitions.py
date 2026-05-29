@@ -20,6 +20,8 @@ class ToolDefinitionTests(unittest.TestCase):
                 "list_document_originals",
                 "list_news",
                 "get_document_content",
+                "search_section_contents",
+                "get_section_window",
                 "get_document_original",
                 "get_document_page_image",
                 "search_documents",
@@ -59,6 +61,8 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertIn("page_images", tools["list_document_page_images"]["outputSchema"]["properties"])
         self.assertIn("originals", tools["list_document_originals"]["outputSchema"]["properties"])
         self.assertIn("content_sections", tools["get_document_content"]["outputSchema"]["properties"])
+        self.assertIn("matches", tools["search_section_contents"]["outputSchema"]["properties"])
+        self.assertIn("start_offset", tools["get_section_window"]["outputSchema"]["properties"])
 
     def test_list_tool_argument_alternatives_are_enforced_at_runtime(self) -> None:
         self.assertEqual(
@@ -79,7 +83,7 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertEqual(schemas["search_documents"]["properties"]["top_k"]["maximum"], 25)
         self.assertEqual(schemas["search_news"]["properties"]["top_k"]["maximum"], 25)
 
-    def test_get_document_content_schema_allows_optional_bounded_sections_and_offset(self) -> None:
+    def test_get_document_content_schema_allows_optional_bounded_sections_without_offset(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
         schema = schemas["get_document_content"]
 
@@ -87,7 +91,23 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["section_ids"]["minItems"], 1)
         self.assertEqual(schema["properties"]["section_ids"]["maxItems"], 5)
         self.assertNotIn("max_chars", schema["properties"])
-        self.assertEqual(schema["properties"]["offset"]["minimum"], 0)
+        self.assertNotIn("offset", schema["properties"])
+
+    def test_cached_section_reader_schemas_are_bounded(self) -> None:
+        schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
+
+        search_schema = schemas["search_section_contents"]
+        self.assertEqual(search_schema["required"], ["document_id", "section_id", "query"])
+        self.assertEqual(search_schema["properties"]["match_type"]["enum"], ["lexical"])
+        self.assertEqual(search_schema["properties"]["context_chars"]["minimum"], 50)
+        self.assertEqual(search_schema["properties"]["context_chars"]["maximum"], 500)
+        self.assertEqual(search_schema["properties"]["max_matches"]["minimum"], 1)
+        self.assertEqual(search_schema["properties"]["max_matches"]["maximum"], 15)
+
+        window_schema = schemas["get_section_window"]
+        self.assertEqual(window_schema["required"], ["document_id", "section_id", "offset"])
+        self.assertEqual(window_schema["properties"]["offset"]["minimum"], 0)
+        self.assertEqual(window_schema["properties"]["max_characters"]["maximum"], 5000)
 
     def test_get_document_toc_schema_allows_outline_options(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}

@@ -20,7 +20,6 @@ DEFAULT_CACHE_MAX_BYTES = int(DEFAULT_CACHE_MAX_GB * BYTES_PER_GB)
 MAX_LIST_LIMIT = 25
 MAX_SEARCH_TOP_K = 25
 MAX_SECTIONS_PER_CONTENT_CALL = 5
-MAX_CHARACTERS_PER_CONTENT_CALL = 10_000
 API_TIMEOUT_SECONDS = 15
 DEFAULT_LOG_LEVEL = "INFO"
 
@@ -41,7 +40,6 @@ class Config:
     max_list_limit: int = MAX_LIST_LIMIT
     max_search_top_k: int = MAX_SEARCH_TOP_K
     max_sections_per_content_call: int = MAX_SECTIONS_PER_CONTENT_CALL
-    max_characters_per_content_call: int = MAX_CHARACTERS_PER_CONTENT_CALL
     api_timeout_seconds: int = API_TIMEOUT_SECONDS
     cache_max_bytes: int = DEFAULT_CACHE_MAX_BYTES
     log_level: str = DEFAULT_LOG_LEVEL

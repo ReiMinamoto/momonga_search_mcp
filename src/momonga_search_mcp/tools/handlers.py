@@ -26,11 +26,16 @@ from momonga_search_mcp.tools.response import (
 DEFAULT_CONFIG = Config(api_key="")
 TOOL_SCHEMAS = {**DOCUMENT_LOOKUP_TOOLS, **RETRIEVAL_TOOLS, **SKILL_HELPER_TOOLS}
 FULL_DOCUMENT_SECTION_ID = "__mcp_full_document__"
+DEFAULT_SECTION_SEARCH_CONTEXT_CHARS = 300
+DEFAULT_SECTION_SEARCH_MAX_MATCHES = 5
+DEFAULT_SECTION_WINDOW_CHARACTERS = 1500
 SKILL_INDEX_GUARDED_TOOLS = {
     "search_issuers",
     "list_documents",
     "list_news",
     "get_document_content",
+    "search_section_contents",
+    "get_section_window",
     "search_documents",
     "search_news",
 }
@@ -122,6 +127,10 @@ def call_tool(
             payload = api_client.get("/news", params)
         elif name == "get_document_content":
             return _call_get_document_content(api_client, arguments, cache_manager_getter, config=config)
+        elif name == "search_section_contents":
+            return tool_json_result(_call_search_section_contents(arguments, cache_manager_getter))
+        elif name == "get_section_window":
+            return tool_json_result(_call_get_section_window(arguments, cache_manager_getter))
         elif name == "search_documents":
             payload = api_client.post(
                 "/search/documents",
@@ -171,6 +180,94 @@ def call_tool(
 
     response = success_response(name, payload)
     return tool_json_result(response)
+
+
+def _call_search_section_contents(
+    arguments: dict[str, Any],
+    cache_manager_getter: Callable[[], CacheManager] | None,
+) -> dict[str, Any]:
+    document_id = _required_string(arguments, "document_id")
+    section_id = _required_string(arguments, "section_id")
+    query = _required_string(arguments, "query").strip()
+    match_type = arguments.get("match_type", "lexical")
+    if match_type != "lexical":
+        raise ValueError("match_type must be lexical")
+    context_chars = arguments.get("context_chars", DEFAULT_SECTION_SEARCH_CONTEXT_CHARS)
+    max_matches = arguments.get("max_matches", DEFAULT_SECTION_SEARCH_MAX_MATCHES)
+    if cache_manager_getter is None:
+        raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for search_section_contents")
+
+    cache_manager = cache_manager_getter()
+    resource = cache_manager.get_document_section(document_id, section_id)
+    if resource is None:
+        raise ValueError(
+            "section content is not cached; call get_document_content with this document_id and section_id before searching"
+        )
+    section = cache_manager.read_json(resource)
+    content = section.get("content")
+    if not isinstance(content, str):
+        raise ValueError("cached section does not contain searchable text content")
+
+    matches = _section_lexical_matches(content, query, context_chars=context_chars, max_matches=max_matches)
+    return {
+        "ok": True,
+        "document_id": document_id,
+        "section_id": section_id,
+        **_section_metadata(section),
+        "match_type": "lexical",
+        "query": query,
+        "context_chars": context_chars,
+        "max_matches": max_matches,
+        "matches": matches,
+        "source_resource_uri": resource.resource_uri,
+        "cache_hit": True,
+    }
+
+
+def _call_get_section_window(
+    arguments: dict[str, Any],
+    cache_manager_getter: Callable[[], CacheManager] | None,
+) -> dict[str, Any]:
+    document_id = _required_string(arguments, "document_id")
+    section_id = _required_string(arguments, "section_id")
+    offset = arguments["offset"]
+    max_characters = arguments.get("max_characters", DEFAULT_SECTION_WINDOW_CHARACTERS)
+    if cache_manager_getter is None:
+        raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_section_window")
+
+    cache_manager = cache_manager_getter()
+    resource = cache_manager.get_document_section(document_id, section_id)
+    if resource is None:
+        raise ValueError(
+            "section content is not cached; call get_document_content with this document_id and section_id before reading a window"
+        )
+    section = cache_manager.read_json(resource)
+    content = section.get("content")
+    if not isinstance(content, str):
+        raise ValueError("cached section does not contain window-readable text content")
+
+    bounded_offset = min(offset, len(content))
+    half_window = max_characters // 2
+    start_offset = max(0, bounded_offset - half_window)
+    end_offset = min(len(content), start_offset + max_characters)
+    if end_offset - start_offset < max_characters:
+        start_offset = max(0, end_offset - max_characters)
+    window = content[start_offset:end_offset]
+    return {
+        "ok": True,
+        "document_id": document_id,
+        "section_id": section_id,
+        **_section_metadata(section),
+        "offset": offset,
+        "start_offset": start_offset,
+        "end_offset": end_offset,
+        "actual_characters": len(window),
+        "max_characters": max_characters,
+        "content": window,
+        "truncated": start_offset > 0 or end_offset < len(content),
+        "source_resource_uri": resource.resource_uri,
+        "cache_hit": True,
+    }
 
 
 def _validation_error(message: str) -> dict[str, Any]:
@@ -262,9 +359,6 @@ def _call_get_document_content(
     return_content = arguments.get("return_content", True)
     if not isinstance(return_content, bool):
         raise ValueError("return_content must be a boolean")
-    offset = arguments.get("offset", 0)
-    if offset > 0 and len(section_ids) > 1:
-        raise ValueError("offset can only be used with exactly one section_id")
 
     if cache_manager_getter is None:
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_content")
@@ -281,8 +375,6 @@ def _call_get_document_content(
                 cache_hit=True,
                 cached_sections=True,
                 return_content=return_content,
-                max_chars=config.max_characters_per_content_call,
-                offset=offset,
             )
             return tool_json_result(response)
 
@@ -317,8 +409,6 @@ def _call_get_document_content(
         cache_hit=False,
         cached_sections=False,
         return_content=return_content,
-        max_chars=config.max_characters_per_content_call,
-        offset=offset,
     )
     return tool_json_result(response)
 
@@ -467,6 +557,46 @@ def _download_response(
         response["original_id"] = original_id
         response["filename"] = filename
     return response
+
+
+def _section_metadata(section: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    section_title = section.get("section_title")
+    if isinstance(section_title, str):
+        metadata["section_title"] = section_title
+    heading_path = section.get("heading_path")
+    if isinstance(heading_path, list):
+        metadata["heading_path"] = [item for item in heading_path if isinstance(item, str)]
+    return metadata
+
+
+def _section_lexical_matches(
+    content: str,
+    query: str,
+    *,
+    context_chars: int,
+    max_matches: int,
+) -> list[dict[str, Any]]:
+    matches = []
+    content_lower = content.casefold()
+    query_lower = query.casefold()
+    search_from = 0
+    while len(matches) < max_matches:
+        offset = content_lower.find(query_lower, search_from)
+        if offset == -1:
+            break
+        match_end = offset + len(query)
+        excerpt_start = max(0, offset - context_chars)
+        excerpt_end = min(len(content), match_end + context_chars)
+        matches.append(
+            {
+                "offset": offset,
+                "excerpt": content[excerpt_start:excerpt_end],
+                "matched_text": content[offset:match_end],
+            }
+        )
+        search_from = match_end
+    return matches
 
 
 def _original_manifest_entry(

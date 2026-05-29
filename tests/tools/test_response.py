@@ -278,8 +278,6 @@ class ToolResponseTests(unittest.TestCase):
             cache_hit=True,
             cached_sections=True,
             return_content=False,
-            max_chars=8000,
-            offset=0,
         )
 
         self.assertEqual(
@@ -296,13 +294,12 @@ class ToolResponseTests(unittest.TestCase):
                         "cached": True,
                     }
                 ],
-                "max_characters": 8000,
-                "character_limit_reached": False,
+                "max_inline_section_characters": 3000,
                 "cache_hit": True,
             },
         )
 
-    def test_content_response_truncates_content_with_next_offset(self) -> None:
+    def test_content_response_returns_inline_for_small_section(self) -> None:
         response = get_document_content_response(
             "doc_123",
             [
@@ -319,8 +316,6 @@ class ToolResponseTests(unittest.TestCase):
             cache_hit=False,
             cached_sections=False,
             return_content=True,
-            max_chars=4,
-            offset=3,
         )
 
         self.assertEqual(
@@ -329,94 +324,124 @@ class ToolResponseTests(unittest.TestCase):
                 "section_id": "sec_1",
                 "section_title": "Risk",
                 "character_count": 10,
-                "content": "3456",
-                "truncated": True,
-                "offset": 3,
-                "next_offset": 7,
+                "content": "0123456789",
+                "content_mode": "inline",
                 "resource_uri": "momonga://documents/doc_123/sections/sec_1",
                 "cached": False,
             },
         )
 
-    def test_content_response_applies_character_limit_across_sections(self) -> None:
+    def test_content_response_returns_manifest_for_large_section(self) -> None:
         response = get_document_content_response(
             "doc_123",
             [
                 (
                     {
                         "section_id": "sec_1",
-                        "character_count": 4,
-                        "content": "abcd",
+                        "section_title": "Risk",
+                        "character_count": 3001,
+                        "content": "x" * 3001,
                     },
                     "momonga://documents/doc_123/sections/sec_1",
-                ),
-                (
-                    {
-                        "section_id": "sec_2",
-                        "character_count": 4,
-                        "content": "efgh",
-                    },
-                    "momonga://documents/doc_123/sections/sec_2",
-                ),
+                )
             ],
             cache_hit=False,
             cached_sections=False,
             return_content=True,
-            max_chars=6,
-            offset=0,
         )
 
-        self.assertEqual(response["content_sections"][0]["content"], "abcd")
-        self.assertEqual(response["content_sections"][1]["content"], "ef")
-        self.assertTrue(response["content_sections"][1]["truncated"])
-        self.assertEqual(response["max_characters"], 6)
-        self.assertTrue(response["character_limit_reached"])
-
-    def test_content_response_marks_unstarted_sections_omitted_after_character_limit(self) -> None:
-        response = get_document_content_response(
-            "doc_123",
-            [
-                (
-                    {
-                        "section_id": "sec_1",
-                        "character_count": 4,
-                        "content": "abcd",
-                    },
-                    "momonga://documents/doc_123/sections/sec_1",
-                ),
-                (
-                    {
-                        "section_id": "sec_2",
-                        "character_count": 4,
-                        "content": "efgh",
-                    },
-                    "momonga://documents/doc_123/sections/sec_2",
-                ),
-            ],
-            cache_hit=False,
-            cached_sections=False,
-            return_content=True,
-            max_chars=4,
-            offset=0,
-        )
-
-        omitted_section = response["content_sections"][1]
         self.assertEqual(
-            omitted_section,
+            response["content_sections"][0],
             {
-                "section_id": "sec_2",
-                "character_count": 4,
-                "content_omitted": True,
-                "omitted_reason": "character_limit_reached",
-                "offset": 0,
-                "resource_uri": "momonga://documents/doc_123/sections/sec_2",
+                "section_id": "sec_1",
+                "section_title": "Risk",
+                "character_count": 3001,
+                "content_mode": "manifest",
+                "reason": "section_exceeds_inline_threshold",
+                "content_available_in_cache": True,
+                "recommended_tools": ["search_section_contents", "get_section_window"],
+                "resource_uri": "momonga://documents/doc_123/sections/sec_1",
+                "source_resource_uri": "momonga://documents/doc_123/sections/sec_1",
                 "cached": False,
             },
         )
-        self.assertNotIn("content", omitted_section)
-        self.assertNotIn("truncated", omitted_section)
-        self.assertNotIn("next_offset", omitted_section)
-        self.assertTrue(response["character_limit_reached"])
+        self.assertNotIn("content", response["content_sections"][0])
+
+    def test_content_response_inlines_multiple_small_sections_without_total_budget(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {
+                        "section_id": "sec_1",
+                        "character_count": 4,
+                        "content": "abcd",
+                    },
+                    "momonga://documents/doc_123/sections/sec_1",
+                ),
+                (
+                    {
+                        "section_id": "sec_2",
+                        "character_count": 4,
+                        "content": "efgh",
+                    },
+                    "momonga://documents/doc_123/sections/sec_2",
+                ),
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+        )
+
+        self.assertEqual(response["content_sections"][0]["content"], "abcd")
+        self.assertEqual(response["content_sections"][0]["content_mode"], "inline")
+        self.assertEqual(response["content_sections"][1]["content"], "efgh")
+        self.assertEqual(response["content_sections"][1]["content_mode"], "inline")
+
+    def test_content_response_uses_section_limit_even_after_small_sections(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {
+                        "section_id": "sec_1",
+                        "character_count": 4,
+                        "content": "abcd",
+                    },
+                    "momonga://documents/doc_123/sections/sec_1",
+                ),
+                (
+                    {
+                        "section_id": "sec_2",
+                        "character_count": 3001,
+                        "content": "x" * 3001,
+                    },
+                    "momonga://documents/doc_123/sections/sec_2",
+                ),
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+        )
+
+        manifest_section = response["content_sections"][1]
+        self.assertEqual(
+            manifest_section,
+            {
+                "section_id": "sec_2",
+                "character_count": 3001,
+                "content_mode": "manifest",
+                "reason": "section_exceeds_inline_threshold",
+                "content_available_in_cache": True,
+                "recommended_tools": ["search_section_contents", "get_section_window"],
+                "resource_uri": "momonga://documents/doc_123/sections/sec_2",
+                "source_resource_uri": "momonga://documents/doc_123/sections/sec_2",
+                "cached": False,
+            },
+        )
+        self.assertNotIn("content", manifest_section)
+        self.assertNotIn("truncated", manifest_section)
+        self.assertNotIn("next_offset", manifest_section)
 
     def test_get_document_toc_returns_sections_for_small_toc_by_default(self) -> None:
         response = get_document_toc_response(

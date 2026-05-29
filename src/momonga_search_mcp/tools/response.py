@@ -34,6 +34,7 @@ SEARCH_NEWS_FIELDS = LIST_NEWS_FIELDS
 CONTENT_SECTION_FIELDS = ("section_id", "section_title", "character_count", "content")
 TOC_FIELDS = ("section_id", "section_title", "heading_path", "character_count", "page_number")
 MAX_DIRECT_TOC_SECTIONS = 50
+MAX_INLINE_SECTION_CHARACTERS = 3_000
 
 
 def tool_json_result(payload: dict[str, Any], *, is_error: bool = False) -> dict[str, Any]:
@@ -160,46 +161,22 @@ def get_document_content_response(
     cache_hit: bool,
     cached_sections: bool,
     return_content: bool,
-    max_chars: int,
-    offset: int,
 ) -> dict[str, Any]:
-    remaining_chars = max_chars
     section_responses = []
-    character_limit_reached = False
     for section, resource_uri in content_sections:
-        if return_content and remaining_chars <= 0:
-            section_response = _content_section_omitted_response(
-                section,
-                resource_uri=resource_uri,
-                cached=cached_sections,
-                offset=offset,
-            )
-            character_limit_reached = True
-            section_responses.append(section_response)
-            continue
-
         section_response = _content_section_response(
             section,
             resource_uri=resource_uri,
             cached=cached_sections,
             return_content=return_content,
-            max_chars=remaining_chars,
-            offset=offset,
         )
-        if return_content:
-            content = section_response.get("content")
-            if isinstance(content, str):
-                remaining_chars = max(0, remaining_chars - len(content))
-            if section_response.get("truncated") is True:
-                character_limit_reached = True
         section_responses.append(section_response)
 
     return {
         "ok": True,
         "document_id": document_id,
         "content_sections": section_responses,
-        "max_characters": max_chars,
-        "character_limit_reached": character_limit_reached,
+        "max_inline_section_characters": MAX_INLINE_SECTION_CHARACTERS,
         "cache_hit": cache_hit,
     }
 
@@ -210,40 +187,48 @@ def _content_section_response(
     resource_uri: str,
     cached: bool,
     return_content: bool,
-    max_chars: int,
-    offset: int,
 ) -> dict[str, Any]:
     fields = CONTENT_SECTION_FIELDS if return_content else tuple(field for field in CONTENT_SECTION_FIELDS if field != "content")
     response = _pick(section, fields)
     if return_content:
         content = response.get("content")
         if isinstance(content, str):
-            content_slice = content[offset : offset + max_chars]
-            response["content"] = content_slice
-            next_offset = offset + len(content_slice)
-            response["truncated"] = next_offset < len(content)
-            response["offset"] = offset
-            if response["truncated"]:
-                response["next_offset"] = next_offset
+            if _section_text_length(section, content) > MAX_INLINE_SECTION_CHARACTERS:
+                return _content_section_manifest_response(
+                    section,
+                    resource_uri=resource_uri,
+                    cached=cached,
+                    reason="section_exceeds_inline_threshold",
+                )
+            response["content_mode"] = "inline"
     response["resource_uri"] = resource_uri
     response["cached"] = cached
     return response
 
 
-def _content_section_omitted_response(
+def _content_section_manifest_response(
     section: dict[str, Any],
     *,
     resource_uri: str,
     cached: bool,
-    offset: int,
+    reason: str,
 ) -> dict[str, Any]:
     response = _pick(section, tuple(field for field in CONTENT_SECTION_FIELDS if field != "content"))
-    response["content_omitted"] = True
-    response["omitted_reason"] = "character_limit_reached"
-    response["offset"] = offset
+    response["content_mode"] = "manifest"
+    response["reason"] = reason
+    response["content_available_in_cache"] = True
+    response["recommended_tools"] = ["search_section_contents", "get_section_window"]
     response["resource_uri"] = resource_uri
+    response["source_resource_uri"] = resource_uri
     response["cached"] = cached
     return response
+
+
+def _section_text_length(section: dict[str, Any], content: str) -> int:
+    character_count = section.get("character_count")
+    if type(character_count) is int:
+        return character_count
+    return len(content)
 
 
 def _results_response(payload: dict[str, Any], item_mapper: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
