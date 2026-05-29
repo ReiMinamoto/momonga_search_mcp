@@ -128,7 +128,7 @@ class ServerTests(unittest.TestCase):
         self.assertIn("# Document Research Skill", content["text"])
         self.assertIn("switch to `document-content-retrieval`", content["text"])
 
-    def test_momonga_resources_list_and_read_cached_tool_results_without_api_replay(self) -> None:
+    def test_momonga_resources_list_and_read_cached_section_manifest_without_api_replay(self) -> None:
         api_client = FakeApiClient()
         with TemporaryDirectory() as temp_dir:
             server = StdioMCPServer(
@@ -208,7 +208,15 @@ class ServerTests(unittest.TestCase):
         assert read_response is not None
         content = read_response["result"]["contents"][0]
         self.assertEqual(content["mimeType"], "application/json")
-        self.assertEqual(json.loads(content["text"])["content"], "body")
+        read_payload = json.loads(content["text"])
+        self.assertEqual(read_payload["document_id"], "doc_123")
+        self.assertEqual(read_payload["section_id"], "sec_1")
+        self.assertEqual(read_payload["section_title"], "Risk")
+        self.assertEqual(read_payload["character_count"], 4)
+        self.assertTrue(read_payload["content_available_in_cache"])
+        self.assertEqual(read_payload["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
+        self.assertIn("get_section_window", read_payload["read_policy"])
+        self.assertNotIn("content", read_payload)
         self.assertEqual(api_client.calls, calls_before_read)
 
     def test_prompts_list_and_get_representative_prompt(self) -> None:
