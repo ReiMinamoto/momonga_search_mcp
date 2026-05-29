@@ -397,6 +397,41 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(payload["matches"], [])
         self.assertEqual(payload["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
 
+    def test_search_section_contents_normalizes_query_and_preserves_original_offsets(self) -> None:
+        content = "前文 ＡＩ と ２０２６年 （１）終わり"
+        cases = [
+            ("AI", "ＡＩ"),
+            ("2026", "２０２６"),
+            ("(1)", "（１）"),
+        ]
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            cache_manager.store_document_section(
+                "doc_123",
+                "sec_1",
+                {"section_id": "sec_1", "content": content},
+            )
+
+            for query, matched_text in cases:
+                with self.subTest(query=query):
+                    response = call_tool(
+                        FakeApiClient(),
+                        {
+                            "name": "search_section_contents",
+                            "arguments": {
+                                "document_id": "doc_123",
+                                "section_id": "sec_1",
+                                "query": query,
+                            },
+                        },
+                        cache_manager_getter=lambda: cache_manager,
+                    )
+
+                    payload = response["structuredContent"]
+                    self.assertTrue(payload["ok"])
+                    self.assertEqual(payload["matches"][0]["offset"], content.index(matched_text))
+                    self.assertEqual(payload["matches"][0]["matched_text"], matched_text)
+
     def test_get_section_window_returns_offsets_and_respects_max_characters(self) -> None:
         api_client = FakeApiClient()
         with TemporaryDirectory() as temp_dir:

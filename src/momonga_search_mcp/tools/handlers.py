@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
+import unicodedata
 from urllib.parse import quote
 
 from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
@@ -581,14 +582,18 @@ def _section_lexical_matches(
     max_matches: int,
 ) -> list[dict[str, Any]]:
     matches = []
-    content_lower = content.casefold()
-    query_lower = query.casefold()
+    normalized_content, offset_map = _normalize_search_text_with_offsets(content)
+    normalized_query = _normalize_search_text(query)
+    if not normalized_query:
+        return matches
     search_from = 0
     while len(matches) < max_matches:
-        offset = content_lower.find(query_lower, search_from)
-        if offset == -1:
+        normalized_offset = normalized_content.find(normalized_query, search_from)
+        if normalized_offset == -1:
             break
-        match_end = offset + len(query)
+        normalized_match_end = normalized_offset + len(normalized_query)
+        offset = offset_map[normalized_offset]
+        match_end = offset_map[normalized_match_end - 1] + 1
         excerpt_start = max(0, offset - context_chars)
         excerpt_end = min(len(content), match_end + context_chars)
         matches.append(
@@ -598,8 +603,24 @@ def _section_lexical_matches(
                 "matched_text": content[offset:match_end],
             }
         )
-        search_from = match_end
+        search_from = normalized_match_end
     return matches
+
+
+def _normalize_search_text(value: str) -> str:
+    return unicodedata.normalize("NFKC", value).casefold()
+
+
+def _normalize_search_text_with_offsets(value: str) -> tuple[str, list[int]]:
+    normalized_parts = []
+    offset_map = []
+    for original_offset, character in enumerate(value):
+        normalized = _normalize_search_text(character)
+        if not normalized:
+            continue
+        normalized_parts.append(normalized)
+        offset_map.extend([original_offset] * len(normalized))
+    return "".join(normalized_parts), offset_map
 
 
 def _original_manifest_entry(

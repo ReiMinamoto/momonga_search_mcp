@@ -288,7 +288,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
     },
     "search_section_contents": {
         "description": (
-            "Search within one cached document section and return short excerpts with offsets. "
+            "Search within one cached document section with NFKC/casefold normalization and return short excerpts with original offsets. "
             "Call get_document_content first if the section is not cached."
         ),
         "inputSchema": {
