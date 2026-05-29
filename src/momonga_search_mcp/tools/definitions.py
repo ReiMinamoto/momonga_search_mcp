@@ -165,10 +165,27 @@ DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "get_document_toc": {
-        "description": "Get content section IDs, heading paths, and character counts for content_status=ready documents.",
+        "description": "Get a compact TOC outline or a focused subtree for content_status=ready documents.",
         "inputSchema": {
             "type": "object",
-            "properties": {"document_id": {"type": "string"}},
+            "properties": {
+                "document_id": {"type": "string"},
+                "path_prefix": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional heading path prefix used to return only the matching TOC subtree.",
+                },
+                "max_depth": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 6,
+                    "description": "Maximum heading depth to expand in the returned outline. Defaults to 2.",
+                },
+                "include_sections": {
+                    "type": "boolean",
+                    "description": "Whether to include leaf section selectors under returned outline nodes. Defaults to false.",
+                },
+            },
             "required": ["document_id"],
             "additionalProperties": False,
         },
@@ -451,7 +468,13 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
         properties.update(
             {
                 "document_id": {"type": "string"},
+                "toc_mode": {"type": "string"},
+                "path_prefix": {"type": "array", "items": {"type": "string"}},
+                "max_depth": {"type": "integer"},
+                "include_sections": {"type": "boolean"},
+                "selection_policy": {"type": "object", "additionalProperties": True},
                 "toc": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                "next_action_template": {"type": "object", "additionalProperties": True},
                 **RESOURCE_OUTPUT_PROPERTIES,
             }
         )

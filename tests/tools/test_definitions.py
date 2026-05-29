@@ -89,6 +89,16 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertNotIn("max_chars", schema["properties"])
         self.assertEqual(schema["properties"]["offset"]["minimum"], 0)
 
+    def test_get_document_toc_schema_allows_outline_options(self) -> None:
+        schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
+        schema = schemas["get_document_toc"]
+
+        self.assertEqual(schema["required"], ["document_id"])
+        self.assertEqual(schema["properties"]["path_prefix"]["items"]["type"], "string")
+        self.assertEqual(schema["properties"]["max_depth"]["minimum"], 2)
+        self.assertEqual(schema["properties"]["max_depth"]["maximum"], 6)
+        self.assertEqual(schema["properties"]["include_sections"]["type"], "boolean")
+
     def test_file_download_schemas_require_explicit_flags(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
 

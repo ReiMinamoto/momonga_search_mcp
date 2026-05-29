@@ -33,6 +33,7 @@ SEARCH_NEWS_FIELDS = LIST_NEWS_FIELDS
 
 CONTENT_SECTION_FIELDS = ("section_id", "section_title", "character_count", "content")
 TOC_FIELDS = ("section_id", "section_title", "heading_path", "character_count", "page_number")
+MAX_DIRECT_TOC_SECTIONS = 50
 
 
 def tool_json_result(payload: dict[str, Any], *, is_error: bool = False) -> dict[str, Any]:
@@ -117,14 +118,39 @@ def success_response(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **payload}
 
 
-def get_document_toc_response(payload: dict[str, Any], resource: CachedResource, *, cache_hit: bool) -> dict[str, Any]:
-    return {
+def get_document_toc_response(
+    payload: dict[str, Any],
+    resource: CachedResource,
+    *,
+    cache_hit: bool,
+    path_prefix: list[str] | None = None,
+    max_depth: int = 2,
+    include_sections: bool = False,
+) -> dict[str, Any]:
+    toc_entries = [_pick(item, TOC_FIELDS) for item in _list(payload, "toc")]
+    selected_entries = _filter_toc_by_path_prefix(toc_entries, path_prefix or [])
+    toc_mode = _toc_mode(selected_entries, path_prefix=path_prefix, include_sections=include_sections)
+    toc_response = (
+        selected_entries
+        if toc_mode == "sections"
+        else _build_toc_outline(selected_entries, max_depth=max_depth, include_sections=include_sections)
+    )
+    response = {
         "ok": True,
         **_pick(payload, ("document_id",)),
-        "toc": [_pick(item, TOC_FIELDS) for item in _list(payload, "toc")],
+        "toc_mode": toc_mode,
+        "path_prefix": path_prefix or [],
+        "max_depth": max_depth,
+        "include_sections": include_sections,
+        "selection_policy": _toc_selection_policy(toc_mode, selected_entries, path_prefix=path_prefix),
+        "toc": toc_response,
         "resource_uri": resource.resource_uri,
         "cache_hit": cache_hit,
     }
+    next_action_template = _toc_next_action_template(response.get("document_id"), toc_mode)
+    if next_action_template is not None:
+        response["next_action_template"] = next_action_template
+    return response
 
 
 def get_document_content_response(
@@ -234,6 +260,117 @@ def _document_search_result(item: dict[str, Any]) -> dict[str, Any]:
         for match in _list(item, "matches")
     ]
     return response
+
+
+def _filter_toc_by_path_prefix(toc: list[dict[str, Any]], path_prefix: list[str]) -> list[dict[str, Any]]:
+    if not path_prefix:
+        return toc
+    return [
+        item
+        for item in toc
+        if isinstance(item.get("heading_path"), list) and item["heading_path"][: len(path_prefix)] == path_prefix
+    ]
+
+
+def _toc_mode(toc: list[dict[str, Any]], *, path_prefix: list[str] | None, include_sections: bool) -> str:
+    if path_prefix:
+        return "subtree"
+    if include_sections or len(toc) <= MAX_DIRECT_TOC_SECTIONS:
+        return "sections"
+    return "outline"
+
+
+def _toc_selection_policy(
+    toc_mode: str,
+    toc: list[dict[str, Any]],
+    *,
+    path_prefix: list[str] | None,
+) -> dict[str, Any]:
+    if path_prefix:
+        reason = "path_prefix_requested"
+    elif toc_mode == "sections":
+        reason = "toc_is_small"
+    else:
+        reason = "toc_is_large"
+    return {
+        "mode": "auto",
+        "reason": reason,
+        "max_direct_toc_sections": MAX_DIRECT_TOC_SECTIONS,
+        "selected_toc_entry_count": len(toc),
+    }
+
+
+def _toc_next_action_template(
+    document_id: Any,
+    toc_mode: str,
+) -> dict[str, Any] | None:
+    if toc_mode == "sections" or not isinstance(document_id, str) or not document_id:
+        return None
+
+    return {
+        "tool": "get_document_toc",
+        "argument_hints": {
+            "document_id": document_id,
+            "path_prefix": "Choose a relevant heading_path from the returned toc outline.",
+            "include_sections": True,
+        },
+    }
+
+
+def _build_toc_outline(toc: list[dict[str, Any]], *, max_depth: int, include_sections: bool) -> list[dict[str, Any]]:
+    root: dict[str, Any] = {"children": {}, "sections": []}
+    for section in toc:
+        heading_path = section.get("heading_path")
+        if not isinstance(heading_path, list) or not heading_path:
+            heading_path = [section.get("section_title") or section.get("section_id") or "Untitled"]
+        heading_path = [item for item in heading_path if isinstance(item, str)]
+        if not heading_path:
+            continue
+
+        node = root
+        current_path = []
+        for heading in heading_path:
+            current_path.append(heading)
+            node = node["children"].setdefault(
+                heading,
+                {"heading_title": heading, "heading_path": list(current_path), "children": {}, "sections": []},
+            )
+        node["sections"].append(section)
+
+    depth_limit = max(2, max_depth)
+    return [
+        _outline_node(child, depth_limit=depth_limit, include_sections=include_sections) for child in root["children"].values()
+    ]
+
+
+def _outline_node(node: dict[str, Any], *, depth_limit: int, include_sections: bool) -> dict[str, Any]:
+    children = list(node["children"].values())
+    sections = _collect_sections(node)
+    page_numbers = [section["page_number"] for section in sections if type(section.get("page_number")) is int]
+    result: dict[str, Any] = {
+        "heading_title": node["heading_title"],
+        "heading_path": node["heading_path"],
+        "section_count": len(sections),
+        "total_character_count": sum(
+            section["character_count"] for section in sections if type(section.get("character_count")) is int
+        ),
+        "page_range": {"start": min(page_numbers), "end": max(page_numbers)} if page_numbers else None,
+        "has_children": bool(children),
+    }
+    if include_sections:
+        result["sections"] = [_pick(section, TOC_FIELDS) for section in sections]
+    if len(node["heading_path"]) < depth_limit and children:
+        result["children"] = [
+            _outline_node(child, depth_limit=depth_limit, include_sections=include_sections) for child in children
+        ]
+    return result
+
+
+def _collect_sections(node: dict[str, Any]) -> list[dict[str, Any]]:
+    sections = list(node["sections"])
+    for child in node["children"].values():
+        sections.extend(_collect_sections(child))
+    return sections
 
 
 def _page_numbers(payload: dict[str, Any]) -> list[int]:

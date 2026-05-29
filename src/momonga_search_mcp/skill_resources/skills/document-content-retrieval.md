@@ -24,6 +24,10 @@ Retrieve only the document sections needed for the task while preserving `resour
 2. Read or reuse the table of contents.
    - If document metadata shows `character_count` is 10,000 characters or fewer, retrieve the full document by calling `get_document_content` with only `document_id` instead of selecting sections.
    - Call `get_document_toc` unless you already have reliable `section_id`, `heading_path`, and `character_count` from a previous tool result.
+   - Interpret `get_document_toc.toc_mode` before selecting sections:
+     - `sections`: `toc` already contains section selectors. Choose the relevant `section_id` values directly.
+     - `outline`: `toc` contains heading nodes, not section selectors. Inspect the returned nodes, choose the relevant node's `heading_path`, then call `get_document_toc` again with `path_prefix` set to that `heading_path`. Add `include_sections=true` when section selectors are needed inside that subtree.
+     - `subtree`: use the returned subtree to narrow the section set. If section selectors are still absent and needed, call `get_document_toc` again with the same `path_prefix` and `include_sections=true`.
    - Use `heading_path` and `character_count` to choose a narrow section set.
    - A cached TOC response with `cache_hit=true` is valid. Do not refresh it unless the user explicitly asks.
 

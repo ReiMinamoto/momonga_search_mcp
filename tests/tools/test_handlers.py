@@ -144,7 +144,10 @@ class ToolHandlerTests(unittest.TestCase):
         api_client = FakeApiClient()
         with TemporaryDirectory() as temp_dir:
             cache_manager = CacheManager(Path(temp_dir))
-            cache_manager.store_document_toc("doc_123", {"document_id": "doc_123", "toc": [{"section_id": "sec_1"}]})
+            cache_manager.store_document_toc(
+                "doc_123",
+                {"document_id": "doc_123", "toc": [{"section_id": "sec_1", "heading_path": ["Business"]}]},
+            )
 
             response = call_tool(
                 api_client,
@@ -155,7 +158,53 @@ class ToolHandlerTests(unittest.TestCase):
         payload = response["structuredContent"]
         self.assertEqual(api_client.calls, [])
         self.assertTrue(payload["cache_hit"])
-        self.assertEqual(payload["toc"][0]["section_id"], "sec_1")
+        self.assertEqual(payload["toc"][0]["heading_path"], ["Business"])
+
+    def test_get_document_toc_applies_outline_options_to_cache_hit(self) -> None:
+        api_client = FakeApiClient()
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            cache_manager.store_document_toc(
+                "doc_123",
+                {
+                    "document_id": "doc_123",
+                    "toc": [
+                        {
+                            "section_id": "sec_1",
+                            "section_title": "Risk",
+                            "heading_path": ["Business", "Risk"],
+                            "character_count": 100,
+                            "page_number": 2,
+                        },
+                        {
+                            "section_id": "sec_2",
+                            "section_title": "Governance",
+                            "heading_path": ["Governance"],
+                            "character_count": 50,
+                            "page_number": 8,
+                        },
+                    ],
+                },
+            )
+
+            response = call_tool(
+                api_client,
+                {
+                    "name": "get_document_toc",
+                    "arguments": {
+                        "document_id": "doc_123",
+                        "path_prefix": ["Business"],
+                        "max_depth": 2,
+                        "include_sections": True,
+                    },
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+        payload = response["structuredContent"]
+        self.assertEqual(api_client.calls, [])
+        self.assertEqual(payload["toc_mode"], "subtree")
+        self.assertEqual(payload["toc"][0]["children"][0]["sections"][0]["section_id"], "sec_1")
 
     def test_get_document_content_stores_sections_and_returns_payload(self) -> None:
         api_client = FakeApiClient()
