@@ -251,9 +251,9 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
     },
     "get_document_content": {
         "description": (
-            "Retrieve selected document sections, or the full document only when metadata shows it is small enough. "
+            "Retrieve selected document sections, or cache the full document as one synthetic section only when intentional. "
             "For section retrieval, use section IDs from get_document_toc or search_documents. "
-            "Small sections may be returned inline; large or over-budget sections are cached and returned as manifests."
+            "Small sections may be returned inline; large sections are cached and returned as manifests."
         ),
         "inputSchema": {
             "type": "object",
@@ -266,13 +266,20 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
                     "maxItems": 5,
                     "description": (
                         "Optional section IDs from get_document_toc or search_documents. "
-                        "Omit only when retrieving the full document as a synthetic cached section is intentional. "
+                        "Omit only with allow_full_document=true when retrieving the full document as a synthetic cached section is intentional. "
                         "MCP runtime limit is 5."
                     ),
                 },
                 "return_content": {
                     "type": "boolean",
                     "description": "Whether to include retrieved content in the tool response. Defaults to true.",
+                },
+                "allow_full_document": {
+                    "type": "boolean",
+                    "description": (
+                        "Whether to allow full-document retrieval when section_ids is omitted. "
+                        "Defaults to false. Use only when caching the full document as one synthetic section is intentional."
+                    ),
                 },
             },
             "required": ["document_id"],

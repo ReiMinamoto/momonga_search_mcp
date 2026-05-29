@@ -42,11 +42,40 @@ class MomongaResourceReadTests(unittest.TestCase):
                 "read_policy": (
                     "Use search_section_contents or get_section_window; full cached content is not returned by resources/read."
                 ),
+                "recommended_tools": ["search_section_contents", "get_section_window"],
                 "source_resource_uri": "momonga://documents/doc_123/sections/sec_1",
             },
         )
         self.assertNotIn("content", payload)
         self.assertNotIn("raw_content", payload)
+
+    def test_resources_read_cannot_bypass_context_limits(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(cache_dir=Path(temp_dir))
+            large_content = "CONFIDENTIAL-LONG-SECTION " * 500
+            resource = cache_manager.store_document_section(
+                "doc_123",
+                "sec_large",
+                {
+                    "section_id": "sec_large",
+                    "section_title": "Large Risk",
+                    "heading_path": ["Business", "Large Risk"],
+                    "character_count": len(large_content),
+                    "content": large_content,
+                },
+            )
+
+            text, mime_type = read_momonga_resource(cache_manager, resource.resource_uri)
+
+        payload = json.loads(text)
+        self.assertEqual(mime_type, "application/json")
+        self.assertEqual(payload["document_id"], "doc_123")
+        self.assertEqual(payload["section_id"], "sec_large")
+        self.assertEqual(payload["content_available_in_cache"], True)
+        self.assertEqual(payload["recommended_tools"], ["search_section_contents", "get_section_window"])
+        self.assertEqual(payload["source_resource_uri"], "momonga://documents/doc_123/sections/sec_large")
+        self.assertNotIn("content", payload)
+        self.assertNotIn("CONFIDENTIAL-LONG-SECTION", text)
 
     def test_toc_resource_read_returns_compact_manifest(self) -> None:
         with TemporaryDirectory() as temp_dir:

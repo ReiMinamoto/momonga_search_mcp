@@ -83,7 +83,7 @@ Use this path by default:
 
 ## Subagent Summarization Path
 
-When subagents are available, large section inspection or multi-document evidence collection may be delegated to isolated subagents.
+When the host/client runtime provides subagents, large section inspection or multi-document evidence collection may be delegated to isolated subagents. The MCP server does not expose a subagent capability or subagent orchestration tool.
 
 Do not delegate simple short-section answers to a subagent. Keep the evidence in the main context and answer directly.
 

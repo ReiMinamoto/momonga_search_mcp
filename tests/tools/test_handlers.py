@@ -604,7 +604,7 @@ class ToolHandlerTests(unittest.TestCase):
 
             response = call_tool(
                 api_client,
-                {"name": "get_document_content", "arguments": {"document_id": "doc_123"}},
+                {"name": "get_document_content", "arguments": {"document_id": "doc_123", "allow_full_document": True}},
                 cache_manager_getter=lambda: cache_manager,
             )
 
@@ -621,6 +621,7 @@ class ToolHandlerTests(unittest.TestCase):
 
     def test_get_document_content_validates_section_count_and_rejects_offset(self) -> None:
         invalid_calls = [
+            ({"document_id": "doc_123"}, "allow_full_document=true is required when section_ids is omitted"),
             ({"document_id": "doc_123", "section_ids": ["sec_1"], "offset": 0}, "unknown arguments: offset"),
             ({"document_id": "doc_123", "section_ids": ["sec_1"] * 6}, "section_ids must contain at most 5 items"),
         ]

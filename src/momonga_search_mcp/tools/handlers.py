@@ -356,6 +356,9 @@ def _call_get_document_content(
     section_ids = arguments.get("section_ids", [])
     if not isinstance(section_ids, list) or not all(isinstance(item, str) and item.strip() for item in section_ids):
         raise ValueError("section_ids must be an array of strings")
+    allow_full_document = arguments.get("allow_full_document", False)
+    if not section_ids and allow_full_document is not True:
+        raise ValueError("allow_full_document=true is required when section_ids is omitted")
     return_content = arguments.get("return_content", True)
     if not isinstance(return_content, bool):
         raise ValueError("return_content must be a boolean")

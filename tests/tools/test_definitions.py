@@ -90,6 +90,7 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertEqual(schema["required"], ["document_id"])
         self.assertEqual(schema["properties"]["section_ids"]["minItems"], 1)
         self.assertEqual(schema["properties"]["section_ids"]["maxItems"], 5)
+        self.assertEqual(schema["properties"]["allow_full_document"]["type"], "boolean")
         self.assertNotIn("max_chars", schema["properties"])
         self.assertNotIn("offset", schema["properties"])
 

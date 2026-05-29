@@ -93,6 +93,7 @@ def _section_manifest(uri: str, document_id: str, section_id: str, payload: dict
         "read_policy": (
             "Use search_section_contents or get_section_window; full cached content is not returned by resources/read."
         ),
+        "recommended_tools": ["search_section_contents", "get_section_window"],
         "source_resource_uri": uri,
     }
 

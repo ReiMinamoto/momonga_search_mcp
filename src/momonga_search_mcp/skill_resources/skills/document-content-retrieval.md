@@ -22,7 +22,7 @@ Retrieve only the document sections needed for the task while preserving `resour
    - Proceed only when `content_status=ready`. For `pending_release`, report retry timing if available. For `external_only`, do not retry content retrieval through Momonga; if `reference_url` is present, read that external URL with the available browsing/fetch tool before answering. If no `reference_url` is present or it cannot be read, report that limitation. For any other value or a missing `content_status`, stop content retrieval and report the status.
 
 2. Read or reuse the table of contents.
-   - Retrieve the full document by omitting `section_ids` only when the user explicitly needs the whole document cached as one synthetic section. Otherwise select sections from the TOC.
+   - Retrieve the full document by omitting `section_ids` only when the user explicitly needs the whole document cached as one synthetic section; in that case pass `allow_full_document=true`. Otherwise select sections from the TOC.
    - Call `get_document_toc` unless you already have reliable `section_id`, `heading_path`, and `character_count` from a previous tool result.
    - Interpret `get_document_toc.toc_mode` before selecting sections:
      - `sections`: `toc` already contains section selectors. Choose the relevant `section_id` values directly.
@@ -54,9 +54,10 @@ Retrieve only the document sections needed for the task while preserving `resour
    - If a section is returned as `content_mode=manifest`, tell the user which section still needs search/window retrieval when its body matters.
    - If a limit prevents retrieval, reduce section count or ask for a narrower target.
 
-6. Switch to `evidence-compression` before final answering.
+6. Switch to final answering, with compression only when it helps.
    - Once the required sections, excerpts, or windows are retrieved, follow the `evidence-compression` skill when the answer requires synthesis, comparison, multiple sections, or any large section.
    - The compression step should produce structured `evidence_notes`.
+   - For a simple answer from one short inline section, skip compression and go directly to `evidence-answering`.
    - After compression, follow the `evidence-answering` skill before composing the answer.
 
 ## Required Evidence Fields
