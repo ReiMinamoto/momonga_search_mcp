@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 from momonga_search_mcp.api import MomongaApiClient
 from momonga_search_mcp.cache import CacheManager
-from momonga_search_mcp.config import Config, ConfigError
+from momonga_search_mcp.config import MCP_PROTOCOL_VERSION, SERVER_NAME, SERVER_VERSION, Config, ConfigError
 from momonga_search_mcp.prompts import get_prompt, prompt_definitions
 from momonga_search_mcp.resources import is_momonga_resource_uri, read_momonga_resource
 from momonga_search_mcp.skills import read_skill_resource, skill_resources
@@ -20,9 +20,6 @@ from momonga_search_mcp.tools.definitions import tool_definitions
 from momonga_search_mcp.tools.handlers import call_tool
 
 JSONRPC_VERSION = "2.0"
-MCP_PROTOCOL_VERSION = "2025-11-25"
-SERVER_NAME = "momonga-search-mcp"
-SERVER_VERSION = "0.1.0"
 
 logger = logging.getLogger(__name__)
 

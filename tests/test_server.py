@@ -112,6 +112,7 @@ class ServerTests(unittest.TestCase):
                 "search_news",
                 "list_skills",
                 "get_skill",
+                "diagnose_setup",
                 "list_cached_resources",
             ],
         )

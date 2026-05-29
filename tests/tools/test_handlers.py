@@ -6,6 +6,7 @@ import unittest
 
 from momonga_search_mcp.api import MomongaApiError
 from momonga_search_mcp.cache import CacheManager
+from momonga_search_mcp.config import Config
 from momonga_search_mcp.tools.handlers import call_tool
 from tests.tools.fakes import FakeApiClient
 
@@ -631,6 +632,24 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertTrue(response["isError"])
         self.assertEqual(payload["error"]["code"], "server_setup_error")
         self.assertIn("cache manager is unavailable", payload["error"]["message"])
+
+    def test_diagnose_setup_reports_local_setup_without_secret(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            config = Config(api_key="secret-key", base_url="https://example.test/v1", cache_dir=Path(temp_dir))
+
+            response = call_tool(FakeApiClient(), {"name": "diagnose_setup", "arguments": {}}, config=config)
+
+            payload = response["structuredContent"]
+
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["api_key_configured"], True)
+        self.assertEqual(payload["base_url"], "https://example.test/v1")
+        self.assertEqual(payload["cache_dir"], temp_dir)
+        self.assertEqual(payload["cache_writable"], True)
+        self.assertEqual(payload["server_name"], "momonga-search-mcp")
+        self.assertEqual(payload["protocol_version"], "2025-11-25")
+        self.assertNotIn("api_key", payload)
+        self.assertNotIn("secret-key", str(payload))
 
     def test_search_document_match_does_not_overwrite_cached_section_resource(self) -> None:
         api_client = FakeApiClient()

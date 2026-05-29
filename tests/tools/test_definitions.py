@@ -28,6 +28,7 @@ class ToolDefinitionTests(unittest.TestCase):
                 "search_news",
                 "list_skills",
                 "get_skill",
+                "diagnose_setup",
                 "list_cached_resources",
             ],
         )
@@ -55,6 +56,7 @@ class ToolDefinitionTests(unittest.TestCase):
 
         self.assertEqual(tools["search_documents"]["annotations"]["openWorldHint"], True)
         self.assertEqual(tools["list_cached_resources"]["annotations"]["openWorldHint"], False)
+        self.assertEqual(tools["diagnose_setup"]["annotations"]["openWorldHint"], False)
         self.assertIn("issuers", tools["get_document_metadata"]["outputSchema"]["properties"])
         self.assertIn("published_at", tools["get_document_metadata"]["outputSchema"]["properties"])
         self.assertIn("character_count", tools["get_document_metadata"]["outputSchema"]["properties"])
@@ -144,6 +146,8 @@ class ToolDefinitionTests(unittest.TestCase):
 
         self.assertEqual(schemas["list_skills"]["properties"], {})
         self.assertNotIn("required", schemas["list_skills"])
+        self.assertEqual(schemas["diagnose_setup"]["properties"], {})
+        self.assertNotIn("required", schemas["diagnose_setup"])
         self.assertEqual(schemas["list_cached_resources"]["properties"]["limit"]["maximum"], 25)
         self.assertEqual(
             schemas["list_cached_resources"]["properties"]["resource_type"]["enum"],

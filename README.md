@@ -95,6 +95,18 @@ export MOMONGA_SEARCH_API_KEY=ms_live_xxx
 
 `uv` を使う前提のローカル実行手順です。
 
+`uv` が未インストールの場合:
+
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
 ```sh
 git clone https://github.com/ReiMinamoto/momonga_search_mcp.git
 cd momonga_search_mcp

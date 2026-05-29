@@ -11,6 +11,9 @@ from pathlib import Path
 from platformdirs import user_cache_dir
 
 DEFAULT_BASE_URL = "https://api.momongasearch.com/v1"
+MCP_PROTOCOL_VERSION = "2025-11-25"
+SERVER_NAME = "momonga-search-mcp"
+SERVER_VERSION = "0.1.0"
 APP_CACHE_DIR_NAME = "momonga-search-mcp"
 CACHE_DIR_ENV = "MOMONGA_SEARCH_MCP_CACHE_DIR"
 CACHE_MAX_GB_ENV = "MOMONGA_SEARCH_MCP_CACHE_MAX_GB"

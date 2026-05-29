@@ -69,6 +69,7 @@ TOOL_TITLES = {
     "search_news": "Search News",
     "list_skills": "List Skills",
     "get_skill": "Get Skill",
+    "diagnose_setup": "Diagnose Setup",
     "list_cached_resources": "List Cached Resources",
 }
 
@@ -101,6 +102,7 @@ TOOL_ANNOTATIONS = {
     "search_news": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
     "list_skills": LOCAL_READ_ONLY_ANNOTATIONS,
     "get_skill": LOCAL_READ_ONLY_ANNOTATIONS,
+    "diagnose_setup": LOCAL_READ_ONLY_ANNOTATIONS,
     "list_cached_resources": LOCAL_READ_ONLY_ANNOTATIONS,
 }
 
@@ -437,6 +439,14 @@ SKILL_HELPER_TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
     },
+    "diagnose_setup": {
+        "description": "Diagnose local MCP server setup without returning secrets or contacting the Momonga Search API.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
     "list_cached_resources": {
         "description": (
             "List cached Momonga resources with optional filters. "
@@ -600,6 +610,19 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
 
     if tool_name == "list_cached_resources":
         properties["resources"] = {"type": "array", "items": {"type": "object", "additionalProperties": True}}
+
+    if tool_name == "diagnose_setup":
+        properties.update(
+            {
+                "api_key_configured": {"type": "boolean"},
+                "base_url": {"type": "string"},
+                "cache_dir": {"type": "string"},
+                "cache_writable": {"type": "boolean"},
+                "server_name": {"type": "string"},
+                "server_version": {"type": "string"},
+                "protocol_version": {"type": "string"},
+            }
+        )
 
     if tool_name == "list_skills":
         properties["skills"] = {"type": "array", "items": {"type": "object", "additionalProperties": True}}

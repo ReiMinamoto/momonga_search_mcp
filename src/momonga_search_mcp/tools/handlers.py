@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 import unicodedata
 from urllib.parse import quote
+from uuid import uuid4
 
 from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
 from momonga_search_mcp.cache import CachedResource, CacheManager
-from momonga_search_mcp.config import Config
+from momonga_search_mcp.config import MCP_PROTOCOL_VERSION, SERVER_NAME, SERVER_VERSION, Config
 from momonga_search_mcp.skills import get_skill, list_skills
 from momonga_search_mcp.tools.definitions import (
     DOCUMENT_LOOKUP_TOOLS,
@@ -92,6 +94,8 @@ def call_tool(
             return tool_json_result({"ok": True, "skills": list_skills()})
         if name == "get_skill":
             return tool_json_result({"ok": True, **get_skill(_required_string(arguments, "id"))})
+        if name == "diagnose_setup":
+            return tool_json_result(_call_diagnose_setup(config))
         if name == "list_cached_resources":
             return tool_json_result(_call_list_cached_resources(arguments, cache_manager_getter))
         if name == "search_issuers":
@@ -303,6 +307,33 @@ def _call_list_cached_resources(
         resource_type=arguments.get("resource_type"),
     )
     return {"ok": True, "resources": resources}
+
+
+def _call_diagnose_setup(config: Config) -> dict[str, Any]:
+    try:
+        server_version = version(SERVER_NAME)
+    except PackageNotFoundError:
+        server_version = SERVER_VERSION
+
+    try:
+        config.cache_dir.mkdir(parents=True, exist_ok=True)
+        probe = config.cache_dir / f".diagnose-{uuid4().hex}.tmp"
+        probe.write_text("", encoding="utf-8")
+        probe.unlink()
+        cache_writable = True
+    except OSError:
+        cache_writable = False
+
+    return {
+        "ok": True,
+        "api_key_configured": bool(config.api_key.strip()),
+        "base_url": config.base_url,
+        "cache_dir": str(config.cache_dir),
+        "cache_writable": cache_writable,
+        "server_name": SERVER_NAME,
+        "server_version": server_version,
+        "protocol_version": MCP_PROTOCOL_VERSION,
+    }
 
 
 def _call_get_document_toc(
