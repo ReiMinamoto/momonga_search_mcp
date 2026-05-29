@@ -54,8 +54,10 @@ Retrieve only the document sections needed for the task while preserving `resour
    - If a section is returned as `content_mode=manifest`, tell the user which section still needs search/window retrieval when its body matters.
    - If a limit prevents retrieval, reduce section count or ask for a narrower target.
 
-6. Switch to `evidence-answering` for the final response.
-   - Once the required sections are retrieved (or known to be unavailable), follow the `evidence-answering` skill before composing the answer.
+6. Switch to `evidence-compression` before final answering.
+   - Once the required sections, excerpts, or windows are retrieved, follow the `evidence-compression` skill when the answer requires synthesis, comparison, multiple sections, or any large section.
+   - The compression step should produce structured `evidence_notes`.
+   - After compression, follow the `evidence-answering` skill before composing the answer.
 
 ## Required Evidence Fields
 

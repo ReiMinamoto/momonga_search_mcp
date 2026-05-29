@@ -47,8 +47,11 @@ Find the minimum necessary document evidence and preserve identifiers needed for
    - For any other value (or if `content_status` is missing after `get_document_metadata`), do not retrieve content. Report the unknown status to the user and stop document retrieval for this document.
    - `content_status` is normally returned by `list_documents` and `search_documents`. Only call `get_document_metadata` first when it is genuinely missing from those responses.
 
-5. Switch to `evidence-answering` for the final response.
-   - Once retrieval is sufficient, follow the `evidence-answering` skill before composing the answer.
+5. Switch to final answering, with compression only when it helps.
+   - When document body evidence is needed, follow `document-content-retrieval` first.
+   - Use `evidence-compression` before final answering when the answer requires synthesis, comparison, multiple sections, a large section, or any `content_mode=manifest` section inspected through search/window retrieval.
+   - For a simple answer from one short inline section, skip compression and go directly from `document-content-retrieval` to `evidence-answering`.
+   - If the user only asked for document summaries, candidate documents, or candidate locations, `evidence-answering` can use the listing/search results directly without compression.
    - Cite the specific `document_id`, `section_id`, `heading_path`, and `reference_url` where applicable.
    - Separate facts retrieved from documents from your interpretation.
 

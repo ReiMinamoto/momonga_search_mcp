@@ -95,6 +95,7 @@ class ServerTests(unittest.TestCase):
                 "skill://skills/document-content-retrieval.md",
                 "skill://skills/news-research.md",
                 "skill://skills/file-download.md",
+                "skill://skills/evidence-compression.md",
                 "skill://skills/evidence-answering.md",
             ],
         )
@@ -109,7 +110,7 @@ class ServerTests(unittest.TestCase):
         content = response["result"]["contents"][0]
         self.assertEqual(content["mimeType"], "application/json")
         payload = json.loads(content["text"])
-        self.assertEqual(len(payload["skills"]), 5)
+        self.assertEqual(len(payload["skills"]), 6)
         self.assertIn("resource_uri", payload["skills"][0])
         self.assertNotIn("## Workflow", content["text"])
 
@@ -292,10 +293,37 @@ class ServerTests(unittest.TestCase):
                 "document-content-retrieval",
                 "news-research",
                 "file-download",
+                "evidence-compression",
                 "evidence-answering",
             ],
         )
         self.assertIn("triggers", payload["skills"][0])
+
+    def test_evidence_compression_skill_resource(self) -> None:
+        index_response = self.server.handle_message(
+            {"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://index.json"}}
+        )
+        self.assertIsNotNone(index_response)
+        assert index_response is not None
+        index_payload = json.loads(index_response["result"]["contents"][0]["text"])
+        skill = next(item for item in index_payload["skills"] if item["id"] == "evidence-compression")
+        self.assertEqual(skill["recommended_first_tools"], ["search_section_contents", "get_section_window"])
+
+        detail_response = self.server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "resources/read",
+                "params": {"uri": "skill://skills/evidence-compression.md"},
+            }
+        )
+        self.assertIsNotNone(detail_response)
+        assert detail_response is not None
+        content = detail_response["result"]["contents"][0]
+        self.assertEqual(content["mimeType"], "text/markdown")
+        self.assertIn("# Evidence Compression Skill", content["text"])
+        self.assertIn("evidence_notes", content["text"])
+        self.assertIn("source_resource_uri", content["text"])
 
     def test_get_skill_helper(self) -> None:
         response = self.server.handle_message(

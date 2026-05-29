@@ -35,6 +35,14 @@
       "recommended_first_tools": ["list_document_page_images", "list_document_originals"]
     },
     {
+      "id": "evidence-compression",
+      "title": "Evidence Compression",
+      "description": "Compress retrieved document sections or section excerpts into short evidence notes before final answering.",
+      "resource_uri": "skill://skills/evidence-compression.md",
+      "triggers": ["evidence_note", "比較", "要約してから回答", "根拠メモ", "compression"],
+      "recommended_first_tools": ["search_section_contents", "get_section_window"]
+    },
+    {
       "id": "evidence-answering",
       "title": "Evidence Answering",
       "description": "Produce grounded answers from already-retrieved document sections, news statements, files, or cached resources. Only enter this skill after a retrieval skill has run.",
