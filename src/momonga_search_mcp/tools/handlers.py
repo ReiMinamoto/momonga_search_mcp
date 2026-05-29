@@ -379,6 +379,7 @@ def _call_get_document_content(
                 cache_hit=True,
                 cached_sections=True,
                 return_content=return_content,
+                requested_section_ids=section_ids or None,
             )
             return tool_json_result(response)
 
@@ -386,6 +387,7 @@ def _call_get_document_content(
     endpoint = f"/documents/{_quote_path_component(document_id)}/content"
     payload = api_client.get(endpoint, params)
     section_resources = []
+    missing_section_ids = []
     if section_ids and isinstance(payload.get("content_sections"), list):
         content_sections = payload["content_sections"]
         for section in content_sections:
@@ -395,6 +397,17 @@ def _call_get_document_content(
             section_id = _required_string(section, "section_id")
             resource_uri = cache_manager.store_document_section(document_id, section_id, section).resource_uri
             section_resources.append((section, resource_uri))
+        returned_section_ids = {
+            section.get("section_id")
+            for section, _resource_uri in section_resources
+            if isinstance(section.get("section_id"), str)
+        }
+        missing_section_ids = [section_id for section_id in section_ids if section_id not in returned_section_ids]
+        if not section_resources:
+            raise ValueError(f"requested section_ids were not returned: {', '.join(missing_section_ids or section_ids)}")
+    elif section_ids:
+        missing_section_ids = list(section_ids)
+        raise ValueError(f"requested section_ids were not returned: {', '.join(missing_section_ids)}")
     elif not section_ids:
         content = payload.get("content")
         if isinstance(content, str):
@@ -413,6 +426,8 @@ def _call_get_document_content(
         cache_hit=False,
         cached_sections=False,
         return_content=return_content,
+        requested_section_ids=section_ids or None,
+        missing_section_ids=missing_section_ids,
     )
     return tool_json_result(response)
 

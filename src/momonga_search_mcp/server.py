@@ -42,6 +42,7 @@ class StdioMCPServer:
         self.api_client = MomongaApiClient(config) if api_client is None else api_client
         self.cache_manager = cache_manager
         self.skill_index_seen = False
+        self.initialized = False
 
     def serve_forever(self) -> None:
         logger.info(
@@ -81,6 +82,7 @@ class StdioMCPServer:
         if is_notification:
             if method == "notifications/initialized":
                 logger.info("client initialized")
+                self.initialized = True
             else:
                 logger.debug("ignored notification method=%s", method)
             return None
@@ -89,10 +91,16 @@ class StdioMCPServer:
             return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": self._initialize_result()}
         if method == "ping":
             return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {}}
+        if not self.initialized:
+            return _error_response(request_id, -32002, "Server not initialized")
         if method == "tools/list":
             return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"tools": tool_definitions()}}
         if method == "tools/call":
             params = message.get("params")
+            if isinstance(params, dict) and isinstance(params.get("name"), str):
+                known_tool_names = {tool["name"] for tool in tool_definitions()}
+                if params["name"] not in known_tool_names:
+                    return _error_response(request_id, -32602, f"Unknown tool: {params['name']}")
             result = call_tool(
                 self.api_client,
                 params,

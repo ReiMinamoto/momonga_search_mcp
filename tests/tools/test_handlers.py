@@ -132,13 +132,17 @@ class ToolHandlerTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             cache_manager = CacheManager(Path(temp_dir))
 
-            call_tool(
+            response = call_tool(
                 api_client,
                 {"name": "get_document_toc", "arguments": {"document_id": "doc/with space"}},
                 cache_manager_getter=lambda: cache_manager,
             )
+            cached_toc = cache_manager.get_document_toc("doc/with space")
 
         self.assertEqual(api_client.calls, [("GET", "/documents/doc%2Fwith%20space/toc", None)])
+        self.assertNotIn("isError", response)
+        self.assertIsNotNone(cached_toc)
+        self.assertEqual(response["structuredContent"]["resource_uri"], "momonga://documents/doc%2Fwith%20space/toc")
 
     def test_get_document_toc_returns_cache_hit_without_api_call(self) -> None:
         api_client = FakeApiClient()
@@ -247,19 +251,86 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertNotIn("content", payload["content_sections"][0])
         self.assertIsNotNone(cached_section)
 
-    def test_get_document_content_quotes_document_id_path_component(self) -> None:
+    def test_get_document_content_reports_missing_requested_sections(self) -> None:
         api_client = FakeApiClient()
-        api_client.response = {"document_id": "doc/with space", "content_sections": []}
+        api_client.response = {
+            "document_id": "doc_123",
+            "content_sections": [
+                {
+                    "section_id": "sec_1",
+                    "section_title": "Risk",
+                    "character_count": 4,
+                    "content": "body",
+                }
+            ],
+        }
         with TemporaryDirectory() as temp_dir:
             cache_manager = CacheManager(Path(temp_dir))
 
-            call_tool(
+            response = call_tool(
                 api_client,
-                {"name": "get_document_content", "arguments": {"document_id": "doc/with space", "section_ids": ["sec_1"]}},
+                {
+                    "name": "get_document_content",
+                    "arguments": {"document_id": "doc_123", "section_ids": ["sec_1", "sec_missing"]},
+                },
                 cache_manager_getter=lambda: cache_manager,
             )
 
-        self.assertEqual(api_client.calls, [("GET", "/documents/doc%2Fwith%20space/content", {"sections": ["sec_1"]})])
+        payload = response["structuredContent"]
+        self.assertNotIn("isError", response)
+        self.assertEqual(payload["requested_section_ids"], ["sec_1", "sec_missing"])
+        self.assertEqual(payload["missing_section_ids"], ["sec_missing"])
+        self.assertEqual([section["section_id"] for section in payload["content_sections"]], ["sec_1"])
+
+    def test_get_document_content_errors_when_no_requested_sections_are_returned(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {"document_id": "doc_123", "content_sections": []}
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            response = call_tool(
+                api_client,
+                {
+                    "name": "get_document_content",
+                    "arguments": {"document_id": "doc_123", "section_ids": ["sec_missing"]},
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+
+        payload = response["structuredContent"]
+        self.assertTrue(response["isError"])
+        self.assertEqual(payload["error"]["code"], "invalid_request")
+        self.assertEqual(payload["error"]["message"], "requested section_ids were not returned: sec_missing")
+
+    def test_get_document_content_quotes_document_id_path_component(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {
+            "document_id": "doc/with space",
+            "content_sections": [{"section_id": "sec/with space", "content": "body"}],
+        }
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+
+            response = call_tool(
+                api_client,
+                {
+                    "name": "get_document_content",
+                    "arguments": {"document_id": "doc/with space", "section_ids": ["sec/with space"]},
+                },
+                cache_manager_getter=lambda: cache_manager,
+            )
+            cached_section = cache_manager.get_document_section("doc/with space", "sec/with space")
+
+        self.assertEqual(
+            api_client.calls,
+            [("GET", "/documents/doc%2Fwith%20space/content", {"sections": ["sec/with space"]})],
+        )
+        self.assertNotIn("isError", response)
+        self.assertIsNotNone(cached_section)
+        self.assertEqual(
+            response["structuredContent"]["content_sections"][0]["resource_uri"],
+            "momonga://documents/doc%2Fwith%20space/sections/sec%2Fwith%20space",
+        )
 
     def test_get_document_content_returns_cache_hit_without_api_call(self) -> None:
         api_client = FakeApiClient()

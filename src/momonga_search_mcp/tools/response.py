@@ -161,6 +161,8 @@ def get_document_content_response(
     cache_hit: bool,
     cached_sections: bool,
     return_content: bool,
+    requested_section_ids: list[str] | None = None,
+    missing_section_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     section_responses = []
     for section, resource_uri in content_sections:
@@ -172,13 +174,18 @@ def get_document_content_response(
         )
         section_responses.append(section_response)
 
-    return {
+    response: dict[str, Any] = {
         "ok": True,
         "document_id": document_id,
         "content_sections": section_responses,
         "max_inline_section_characters": MAX_INLINE_SECTION_CHARACTERS,
         "cache_hit": cache_hit,
     }
+    if requested_section_ids is not None:
+        response["requested_section_ids"] = requested_section_ids
+    if missing_section_ids:
+        response["missing_section_ids"] = missing_section_ids
+    return response
 
 
 def _content_section_response(
@@ -233,15 +240,28 @@ def _section_text_length(section: dict[str, Any], content: str) -> int:
 
 def _results_response(payload: dict[str, Any], item_mapper: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
     response: dict[str, Any] = {"ok": True, "results": [item_mapper(item) for item in _list(payload, "results")]}
-    if "next_cursor" in payload:
-        response["next_cursor"] = payload["next_cursor"]
+    next_cursor = payload.get("next_cursor")
+    if isinstance(next_cursor, str) and next_cursor:
+        response["next_cursor"] = next_cursor
     return response
 
 
 def _document_search_result(item: dict[str, Any]) -> dict[str, Any]:
     response = _pick(item, DOCUMENT_FIELDS)
     response["matches"] = [
-        _pick(match, ("section_id", "section_title", "score", "snippet", "page_number", "has_visual"))
+        _pick(
+            match,
+            (
+                "section_id",
+                "section_title",
+                "heading_path",
+                "character_count",
+                "score",
+                "snippet",
+                "page_number",
+                "has_visual",
+            ),
+        )
         for match in _list(item, "matches")
     ]
     return response

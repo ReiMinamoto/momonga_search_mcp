@@ -61,6 +61,11 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertIn("page_images", tools["list_document_page_images"]["outputSchema"]["properties"])
         self.assertIn("originals", tools["list_document_originals"]["outputSchema"]["properties"])
         self.assertIn("content_sections", tools["get_document_content"]["outputSchema"]["properties"])
+        self.assertIn("cache_hit", tools["get_document_content"]["outputSchema"]["properties"])
+        self.assertIn("requested_section_ids", tools["get_document_content"]["outputSchema"]["properties"])
+        self.assertIn("missing_section_ids", tools["get_document_content"]["outputSchema"]["properties"])
+        self.assertNotIn("resource_uri", tools["get_document_content"]["outputSchema"]["properties"])
+        self.assertNotIn("cached", tools["get_document_content"]["outputSchema"]["properties"])
         self.assertIn("matches", tools["search_section_contents"]["outputSchema"]["properties"])
         self.assertIn("start_offset", tools["get_section_window"]["outputSchema"]["properties"])
 

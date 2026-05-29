@@ -179,16 +179,35 @@ class CacheManagerTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             cache = CacheManager(cache_dir=Path(temp_dir))
 
-            uri = cache.document_section_uri("doc 123", "sec 456")
+            uri = cache.document_section_uri("doc 123/456", "sec 456/789")
 
-        self.assertEqual(uri, "momonga://documents/doc%20123/sections/sec%20456")
+        self.assertEqual(uri, "momonga://documents/doc%20123%2F456/sections/sec%20456%2F789")
+
+    def test_stores_ids_with_path_separators_as_encoded_path_segments(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache = CacheManager(cache_dir=Path(temp_dir))
+
+            resource = cache.store_document_section(
+                "doc/with space",
+                "sec/with space",
+                {"section_id": "sec/with space", "content": "body"},
+            )
+            cached_section = cache.get_document_section("doc/with space", "sec/with space")
+
+            assert cached_section is not None
+            self.assertEqual(resource.resource_uri, "momonga://documents/doc%2Fwith%20space/sections/sec%2Fwith%20space")
+            self.assertEqual(cached_section.resource_uri, resource.resource_uri)
+            self.assertEqual(
+                resource.path.relative_to(cache.cache_root).parts,
+                ("documents", "doc%2Fwith%20space", "sections", "sec%2Fwith%20space.json"),
+            )
 
     def test_rejects_path_traversal_segments(self) -> None:
         with TemporaryDirectory() as temp_dir:
             cache = CacheManager(cache_dir=Path(temp_dir))
 
             with self.assertRaisesRegex(ValueError, "path segment"):
-                cache.store_document_toc("../secret", {"toc": []})
+                cache.store_document_toc("..", {"toc": []})
 
     def test_sanitizes_original_filename(self) -> None:
         with TemporaryDirectory() as temp_dir:

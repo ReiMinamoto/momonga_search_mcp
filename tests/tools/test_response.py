@@ -77,6 +77,8 @@ class ToolResponseTests(unittest.TestCase):
                             {
                                 "section_id": "sec_1",
                                 "section_title": "Risk",
+                                "heading_path": ["Business", "Risk"],
+                                "character_count": 1200,
                                 "score": 9.2,
                                 "snippet": "Commodity price risk...",
                                 "page_number": 4,
@@ -109,6 +111,8 @@ class ToolResponseTests(unittest.TestCase):
                             {
                                 "section_id": "sec_1",
                                 "section_title": "Risk",
+                                "heading_path": ["Business", "Risk"],
+                                "character_count": 1200,
                                 "score": 9.2,
                                 "snippet": "Commodity price risk...",
                                 "page_number": 4,
@@ -119,6 +123,17 @@ class ToolResponseTests(unittest.TestCase):
                 ],
             },
         )
+
+    def test_results_response_drops_null_next_cursor(self) -> None:
+        response = success_response(
+            "list_documents",
+            {
+                "results": [],
+                "next_cursor": None,
+            },
+        )
+
+        self.assertEqual(response, {"ok": True, "results": []})
 
     def test_list_page_images_response_returns_available_page_numbers(self) -> None:
         response = success_response(
@@ -330,6 +345,30 @@ class ToolResponseTests(unittest.TestCase):
                 "cached": False,
             },
         )
+
+    def test_content_response_includes_requested_and_missing_section_ids(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {
+                        "section_id": "sec_1",
+                        "section_title": "Risk",
+                        "character_count": 4,
+                        "content": "body",
+                    },
+                    "momonga://documents/doc_123/sections/sec_1",
+                )
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+            requested_section_ids=["sec_1", "sec_missing"],
+            missing_section_ids=["sec_missing"],
+        )
+
+        self.assertEqual(response["requested_section_ids"], ["sec_1", "sec_missing"])
+        self.assertEqual(response["missing_section_ids"], ["sec_missing"])
 
     def test_content_response_returns_manifest_for_large_section(self) -> None:
         response = get_document_content_response(

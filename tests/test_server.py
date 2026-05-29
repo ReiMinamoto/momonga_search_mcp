@@ -12,7 +12,25 @@ from tests.tools.fakes import FakeApiClient
 
 class ServerTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.server = StdioMCPServer(Config(api_key="ms_test_xxx"))
+        self.server = self._initialized_server(Config(api_key="ms_test_xxx"))
+
+    def _initialized_server(
+        self,
+        config: Config,
+        *,
+        api_client: FakeApiClient | None = None,
+    ) -> StdioMCPServer:
+        server = StdioMCPServer(config, api_client=api_client)
+        server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {},
+            }
+        )
+        server.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        return server
 
     def test_initialize_response_contains_server_info(self) -> None:
         response = self.server.handle_message(
@@ -39,6 +57,23 @@ class ServerTests(unittest.TestCase):
         response = self.server.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
         self.assertIsNone(response)
+
+    def test_rejects_tools_before_initialized_notification(self) -> None:
+        server = StdioMCPServer(Config(api_key="ms_test_xxx"))
+
+        response = server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+        self.assertEqual(
+            response,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {
+                    "code": -32002,
+                    "message": "Server not initialized",
+                },
+            },
+        )
 
     def test_null_id_request_still_gets_response(self) -> None:
         response = self.server.handle_message({"jsonrpc": "2.0", "id": None, "method": "ping"})
@@ -134,7 +169,7 @@ class ServerTests(unittest.TestCase):
     def test_momonga_resources_list_and_read_cached_section_manifest_without_api_replay(self) -> None:
         api_client = FakeApiClient()
         with TemporaryDirectory() as temp_dir:
-            server = StdioMCPServer(
+            server = self._initialized_server(
                 Config(api_key="ms_test_xxx", cache_dir=Path(temp_dir)),
                 api_client=api_client,
             )
@@ -272,6 +307,28 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(payload["error"]["message"], "document_id is required")
         self.assertEqual(payload["error"]["next_action"], "Fix the tool input and retry the request.")
 
+    def test_tools_call_unknown_tool_returns_json_rpc_error(self) -> None:
+        response = self.server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "missing_tool", "arguments": {}},
+            }
+        )
+
+        self.assertEqual(
+            response,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {
+                    "code": -32602,
+                    "message": "Unknown tool: missing_tool",
+                },
+            },
+        )
+
     def test_list_skills_helper(self) -> None:
         response = self.server.handle_message(
             {
@@ -343,7 +400,7 @@ class ServerTests(unittest.TestCase):
 
     def test_search_issuers_also_requires_skill_index_first(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         response = server.handle_message(
             {
@@ -363,7 +420,7 @@ class ServerTests(unittest.TestCase):
 
     def test_research_tool_requires_skill_index_first(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         response = server.handle_message(
             {
@@ -388,7 +445,7 @@ class ServerTests(unittest.TestCase):
 
     def test_list_skills_unlocks_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message(
             {
@@ -414,7 +471,7 @@ class ServerTests(unittest.TestCase):
 
     def test_reading_skill_index_resource_unlocks_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://index.json"}})
         response = server.handle_message(
@@ -433,7 +490,7 @@ class ServerTests(unittest.TestCase):
 
     def test_reading_skill_detail_resource_unlocks_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message(
             {
@@ -459,7 +516,7 @@ class ServerTests(unittest.TestCase):
 
     def test_reading_unknown_resource_does_not_unlock_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://unknown.md"}})
         response = server.handle_message(
@@ -480,7 +537,7 @@ class ServerTests(unittest.TestCase):
 
     def test_get_skill_unlocks_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message(
             {
@@ -506,7 +563,7 @@ class ServerTests(unittest.TestCase):
 
     def test_failed_get_skill_does_not_unlock_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message(
             {
@@ -534,7 +591,7 @@ class ServerTests(unittest.TestCase):
 
     def test_launching_prompt_unlocks_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message(
             {
@@ -563,7 +620,7 @@ class ServerTests(unittest.TestCase):
 
     def test_failed_prompt_get_does_not_unlock_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message(
             {

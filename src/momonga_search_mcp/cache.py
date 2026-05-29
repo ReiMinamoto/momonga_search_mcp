@@ -714,13 +714,13 @@ def _document_where(document_id: str | None) -> str:
 
 
 def _uri_segment(value: str) -> str:
-    return quote(_safe_segment(value), safe="-_.~")
+    return _safe_segment(value)
 
 
 def _safe_segment(value: str) -> str:
-    if not value or value in {".", ".."} or "/" in value or "\\" in value:
-        raise ValueError("cache path segment must be non-empty and must not contain path separators")
-    return value
+    if not value or value in {".", ".."}:
+        raise ValueError("cache path segment must be non-empty and must not be . or ..")
+    return quote(value, safe="-_.~")
 
 
 def _file_size(path: Path) -> int:
