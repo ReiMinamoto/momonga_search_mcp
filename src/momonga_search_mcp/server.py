@@ -13,7 +13,6 @@ from dotenv import load_dotenv
 from momonga_search_mcp.api import MomongaApiClient
 from momonga_search_mcp.cache import CacheManager
 from momonga_search_mcp.config import Config, ConfigError
-from momonga_search_mcp.logging import configure_logging
 from momonga_search_mcp.prompts import get_prompt, prompt_definitions
 from momonga_search_mcp.resources import is_momonga_resource_uri, read_momonga_resource
 from momonga_search_mcp.skills import read_skill_resource, skill_resources
@@ -212,6 +211,14 @@ def _error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
             "message": message,
         },
     }
+
+
+def configure_logging(level_name: str) -> None:
+    level = getattr(logging, level_name.upper(), logging.INFO)
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        level=level,
+    )
 
 
 def main() -> int:

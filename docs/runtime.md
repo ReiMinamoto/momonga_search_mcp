@@ -50,10 +50,10 @@ cache可否の基準は、取得対象が不変または実質不変かどうか
 | news list/search結果 | 最新性そのものが価値で、古い結果を返すリスクが高いため。 |
 | page image / original list結果 | 取得可否や一覧内容を都度APIで確認すべきため。 |
 
-デフォルトのキャッシュ保存先は `~/.cache/momonga-search-mcp` です。workspace内に置く場合は、誤commitを避けるため `.cache/` や `momonga-search-mcp-cache/` のようなignore済みdirectoryを指定してください。
+キャッシュ保存先は `MOMONGA_SEARCH_MCP_CACHE_DIR`、OS標準のuser cache directoryの順に解決します。Linuxでは `$XDG_CACHE_HOME/momonga-search-mcp` または `~/.cache/momonga-search-mcp`、macOSでは `~/Library/Caches/momonga-search-mcp`、Windowsでは `%LOCALAPPDATA%\\momonga-search-mcp\\Cache` が標準です。`MOMONGA_SEARCH_MCP_CACHE_DIR` は絶対pathで指定してください。
 
 ```sh
-export MOMONGA_MCP_CACHE_DIR=.cache/momonga-search-mcp
+export MOMONGA_SEARCH_MCP_CACHE_DIR=/home/user/.cache/momonga-search-mcp
 ```
 
 キャッシュを削除する場合:

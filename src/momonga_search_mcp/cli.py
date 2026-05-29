@@ -3,24 +3,21 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from momonga_search_mcp.cache import CacheManager
-from momonga_search_mcp.config import DEFAULT_CACHE_DIR
+from momonga_search_mcp.config import resolve_cache_dir
 
 
 def main() -> int:
     load_dotenv()
-    default_cache_dir = Path(os.environ.get("MOMONGA_MCP_CACHE_DIR", str(DEFAULT_CACHE_DIR))).expanduser()
     parser = argparse.ArgumentParser(prog="momonga-search-mcp-cache")
     parser.add_argument(
         "--cache-dir",
         type=Path,
-        default=default_cache_dir,
-        help="Cache directory. Defaults to MOMONGA_MCP_CACHE_DIR or ~/.cache/momonga-search-mcp.",
+        help=("Cache directory. Defaults to MOMONGA_SEARCH_MCP_CACHE_DIR, then the OS standard user cache directory."),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -33,8 +30,8 @@ def main() -> int:
     )
 
     args = parser.parse_args()
-    cache_dir = Path(args.cache_dir).expanduser()
     if args.command == "clear":
+        cache_dir = _resolve_cache_dir(args.cache_dir)
         result = CacheManager(cache_dir).clear_resources(
             document_id=args.document_id,
             resource_type=args.resource_type,
@@ -46,3 +43,9 @@ def main() -> int:
         return 0
     parser.error(f"unknown command: {args.command}")
     return 2
+
+
+def _resolve_cache_dir(cache_dir: Path | None) -> Path:
+    if cache_dir is not None:
+        return cache_dir.expanduser()
+    return resolve_cache_dir()
