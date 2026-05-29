@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import quote
 
 SCHEMA_VERSION = 1
+PRUNE_TARGET_DIVISOR = 2
 
 
 @dataclass(frozen=True)
@@ -23,8 +24,9 @@ class CachedResource:
 
 
 class CacheManager:
-    def __init__(self, cache_dir: Path) -> None:
+    def __init__(self, cache_dir: Path, *, max_bytes: int | None = None) -> None:
         self.cache_dir = cache_dir
+        self.max_bytes = max_bytes
         self.cache_root = cache_dir / "cache"
         self.db_path = cache_dir / "index.sqlite"
         self.cache_root.mkdir(parents=True, exist_ok=True)
@@ -51,14 +53,15 @@ class CacheManager:
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO document_tocs (document_id, resource_uri, toc_path, cached_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO document_tocs (document_id, resource_uri, toc_path, size_bytes, cached_at)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(document_id) DO UPDATE SET
                     resource_uri = excluded.resource_uri,
                     toc_path = excluded.toc_path,
+                    size_bytes = excluded.size_bytes,
                     cached_at = excluded.cached_at
                 """,
-                (document_id, resource_uri, _relative_path(path, self.cache_dir), _now_iso()),
+                (document_id, resource_uri, _relative_path(path, self.cache_dir), _file_size(path), _now_iso()),
             )
         self._register_json_resource_path(
             resource_uri,
@@ -66,6 +69,7 @@ class CacheManager:
             name=f"Document TOC {document_id}",
             description=f"Cached table of contents for document {document_id}.",
         )
+        self.prune(protected_resource_uris={resource_uri})
         return CachedResource(resource_uri=resource_uri, path=path)
 
     def get_document_toc(self, document_id: str) -> CachedResource | None:
@@ -93,11 +97,12 @@ class CacheManager:
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO document_sections (document_id, section_id, resource_uri, content_path, cached_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO document_sections (document_id, section_id, resource_uri, content_path, size_bytes, cached_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(document_id, section_id) DO UPDATE SET
                     resource_uri = excluded.resource_uri,
                     content_path = excluded.content_path,
+                    size_bytes = excluded.size_bytes,
                     cached_at = excluded.cached_at
                 """,
                 (
@@ -105,6 +110,7 @@ class CacheManager:
                     section_id,
                     resource_uri,
                     _relative_path(path, self.cache_dir),
+                    _file_size(path),
                     _now_iso(),
                 ),
             )
@@ -114,6 +120,7 @@ class CacheManager:
             name=f"Document Section {section_id}",
             description=f"Cached section {section_id} for document {document_id}.",
         )
+        self.prune(protected_resource_uris={resource_uri})
         return CachedResource(resource_uri=resource_uri, path=path)
 
     def get_document_section(self, document_id: str, section_id: str) -> CachedResource | None:
@@ -156,13 +163,14 @@ class CacheManager:
                 """
                 INSERT INTO document_page_images (
                     document_id, page_number, resource_uri, file_path,
-                    metadata_path, cached_at
+                    metadata_path, size_bytes, cached_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(document_id, page_number) DO UPDATE SET
                     resource_uri = excluded.resource_uri,
                     file_path = excluded.file_path,
                     metadata_path = excluded.metadata_path,
+                    size_bytes = excluded.size_bytes,
                     cached_at = excluded.cached_at
                 """,
                 (
@@ -171,6 +179,7 @@ class CacheManager:
                     resource_uri,
                     _relative_path(path, self.cache_dir),
                     _relative_path(metadata_path, self.cache_dir),
+                    _file_size(path) + _file_size(metadata_path),
                     _now_iso(),
                 ),
             )
@@ -180,6 +189,7 @@ class CacheManager:
             name=f"Document Page {page_number}",
             description=f"Cached page image metadata for document {document_id}, page {page_number}.",
         )
+        self.prune(protected_resource_uris={resource_uri})
         return CachedResource(resource_uri=resource_uri, path=path)
 
     def get_page_image(self, document_id: str, page_number: int) -> CachedResource | None:
@@ -226,13 +236,14 @@ class CacheManager:
                 """
                 INSERT INTO document_originals (
                     document_id, original_id, resource_uri, file_path,
-                    metadata_path, cached_at
+                    metadata_path, size_bytes, cached_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(document_id, original_id) DO UPDATE SET
                     resource_uri = excluded.resource_uri,
                     file_path = excluded.file_path,
                     metadata_path = excluded.metadata_path,
+                    size_bytes = excluded.size_bytes,
                     cached_at = excluded.cached_at
                 """,
                 (
@@ -241,6 +252,7 @@ class CacheManager:
                     resource_uri,
                     _relative_path(path, self.cache_dir),
                     _relative_path(metadata_path, self.cache_dir),
+                    _file_size(path) + _file_size(metadata_path),
                     _now_iso(),
                 ),
             )
@@ -250,6 +262,7 @@ class CacheManager:
             name=f"Document Original {original_id}",
             description=f"Cached original file metadata for document {document_id}, original {original_id}.",
         )
+        self.prune(protected_resource_uris={resource_uri})
         return CachedResource(resource_uri=resource_uri, path=path)
 
     def get_original_file(self, document_id: str, original_id: str) -> CachedResource | None:
@@ -364,6 +377,44 @@ class CacheManager:
             "cache_dir": str(self.cache_dir),
         }
 
+    def prune(
+        self,
+        *,
+        max_bytes: int | None = None,
+        protected_resource_uris: set[str] | None = None,
+    ) -> dict[str, Any]:
+        effective_max_bytes = self.max_bytes if max_bytes is None else max_bytes
+        if effective_max_bytes is None:
+            return {
+                "resources_deleted": 0,
+                "files_deleted": 0,
+                "bytes_deleted": 0,
+                "cache_dir": str(self.cache_dir),
+            }
+
+        protected = protected_resource_uris or set()
+        total_size = self._cache_size_bytes()
+        if total_size <= effective_max_bytes:
+            return {
+                "resources_deleted": 0,
+                "files_deleted": 0,
+                "bytes_deleted": 0,
+                "cache_dir": str(self.cache_dir),
+            }
+
+        target_size = effective_max_bytes // PRUNE_TARGET_DIVISOR
+        victims = []
+        bytes_to_delete = 0
+        for resource in self._resources_for_prune():
+            if resource["resource_uri"] in protected:
+                continue
+            victims.append(resource)
+            bytes_to_delete += resource["size_bytes"]
+            if total_size - bytes_to_delete <= target_size:
+                break
+
+        return self._delete_resources(victims)
+
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.db_path)
@@ -389,6 +440,7 @@ class CacheManager:
                     document_id TEXT PRIMARY KEY,
                     resource_uri TEXT NOT NULL,
                     toc_path TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
                     cached_at TEXT NOT NULL
                 );
 
@@ -397,6 +449,7 @@ class CacheManager:
                     section_id TEXT NOT NULL,
                     resource_uri TEXT NOT NULL,
                     content_path TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
                     cached_at TEXT NOT NULL,
                     PRIMARY KEY (document_id, section_id)
                 );
@@ -407,6 +460,7 @@ class CacheManager:
                     resource_uri TEXT NOT NULL,
                     file_path TEXT NOT NULL,
                     metadata_path TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
                     cached_at TEXT NOT NULL,
                     PRIMARY KEY (document_id, page_number)
                 );
@@ -417,6 +471,7 @@ class CacheManager:
                     resource_uri TEXT NOT NULL,
                     file_path TEXT NOT NULL,
                     metadata_path TEXT NOT NULL,
+                    size_bytes INTEGER NOT NULL DEFAULT 0,
                     cached_at TEXT NOT NULL,
                     PRIMARY KEY (document_id, original_id)
                 );
@@ -439,6 +494,10 @@ class CacheManager:
                 """,
                 (SCHEMA_VERSION, _now_iso()),
             )
+            self._ensure_column(connection, "document_tocs", "size_bytes", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "document_sections", "size_bytes", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "document_page_images", "size_bytes", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(connection, "document_originals", "size_bytes", "INTEGER NOT NULL DEFAULT 0")
 
     def _write_json(self, parts: tuple[str, ...], payload: dict[str, Any]) -> Path:
         path = self.cache_root.joinpath(*(_safe_segment(part) for part in parts))
@@ -524,6 +583,79 @@ class CacheManager:
                 )
         return resources
 
+    def _resources_for_prune(self) -> list[dict[str, Any]]:
+        resources: list[dict[str, Any]] = []
+        with self._connect() as connection:
+            resources.extend(
+                {
+                    "resource_uri": row["resource_uri"],
+                    "paths": [row["toc_path"]],
+                    "cached_at": row["cached_at"],
+                    "size_bytes": row["size_bytes"],
+                }
+                for row in connection.execute("SELECT resource_uri, toc_path, size_bytes, cached_at FROM document_tocs")
+            )
+            resources.extend(
+                {
+                    "resource_uri": row["resource_uri"],
+                    "paths": [row["content_path"]],
+                    "cached_at": row["cached_at"],
+                    "size_bytes": row["size_bytes"],
+                }
+                for row in connection.execute("SELECT resource_uri, content_path, size_bytes, cached_at FROM document_sections")
+            )
+            resources.extend(
+                {
+                    "resource_uri": row["resource_uri"],
+                    "paths": [row["file_path"], row["metadata_path"]],
+                    "cached_at": row["cached_at"],
+                    "size_bytes": row["size_bytes"],
+                }
+                for row in connection.execute(
+                    "SELECT resource_uri, file_path, metadata_path, size_bytes, cached_at FROM document_page_images"
+                )
+            )
+            resources.extend(
+                {
+                    "resource_uri": row["resource_uri"],
+                    "paths": [row["file_path"], row["metadata_path"]],
+                    "cached_at": row["cached_at"],
+                    "size_bytes": row["size_bytes"],
+                }
+                for row in connection.execute(
+                    "SELECT resource_uri, file_path, metadata_path, size_bytes, cached_at FROM document_originals"
+                )
+            )
+        return sorted(resources, key=lambda item: (item["cached_at"], item["resource_uri"]))
+
+    def _delete_resources(self, resources: list[dict[str, Any]]) -> dict[str, Any]:
+        resource_uris = {item["resource_uri"] for item in resources}
+        file_paths = {self.cache_dir / path for item in resources for path in item["paths"]}
+
+        with self._connect() as connection:
+            if resource_uris:
+                placeholders = ", ".join("?" for _ in resource_uris)
+                params = tuple(resource_uris)
+                connection.execute(f"DELETE FROM json_resources WHERE resource_uri IN ({placeholders})", params)
+                for table in ("document_tocs", "document_sections", "document_page_images", "document_originals"):
+                    connection.execute(f"DELETE FROM {table} WHERE resource_uri IN ({placeholders})", params)
+
+        files_deleted = 0
+        actual_bytes_deleted = 0
+        for path in file_paths:
+            if path.exists() and path.is_file():
+                actual_bytes_deleted += path.stat().st_size
+                path.unlink()
+                files_deleted += 1
+        self._prune_empty_cache_dirs()
+
+        return {
+            "resources_deleted": len(resources),
+            "files_deleted": files_deleted,
+            "bytes_deleted": actual_bytes_deleted,
+            "cache_dir": str(self.cache_dir),
+        }
+
     def _delete_resource_rows(
         self,
         connection: sqlite3.Connection,
@@ -545,6 +677,11 @@ class CacheManager:
             else:
                 connection.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
 
+    def _ensure_column(self, connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
     def _prune_empty_cache_dirs(self) -> None:
         if not self.cache_root.exists():
             return
@@ -555,6 +692,13 @@ class CacheManager:
                 pass
         if self.cache_root.exists() and not any(self.cache_root.iterdir()):
             shutil.rmtree(self.cache_root)
+
+    def _cache_size_bytes(self) -> int:
+        with self._connect() as connection:
+            return sum(
+                connection.execute(f"SELECT COALESCE(SUM(size_bytes), 0) FROM {table}").fetchone()[0]
+                for table in ("document_tocs", "document_sections", "document_page_images", "document_originals")
+            )
 
 
 def _now_iso() -> str:
@@ -577,3 +721,7 @@ def _safe_segment(value: str) -> str:
     if not value or value in {".", ".."} or "/" in value or "\\" in value:
         raise ValueError("cache path segment must be non-empty and must not contain path separators")
     return value
+
+
+def _file_size(path: Path) -> int:
+    return path.stat().st_size if path.exists() and path.is_file() else 0

@@ -64,15 +64,17 @@ class CacheManagerTests(unittest.TestCase):
                 page_columns = {row[1] for row in connection.execute("PRAGMA table_info(document_page_images)")}
                 original_columns = {row[1] for row in connection.execute("PRAGMA table_info(document_originals)")}
 
-        self.assertEqual(toc_columns, {"document_id", "resource_uri", "toc_path", "cached_at"})
-        self.assertEqual(section_columns, {"document_id", "section_id", "resource_uri", "content_path", "cached_at"})
+        self.assertEqual(toc_columns, {"document_id", "resource_uri", "toc_path", "size_bytes", "cached_at"})
+        self.assertEqual(
+            section_columns, {"document_id", "section_id", "resource_uri", "content_path", "size_bytes", "cached_at"}
+        )
         self.assertEqual(
             page_columns,
-            {"document_id", "page_number", "resource_uri", "file_path", "metadata_path", "cached_at"},
+            {"document_id", "page_number", "resource_uri", "file_path", "metadata_path", "size_bytes", "cached_at"},
         )
         self.assertEqual(
             original_columns,
-            {"document_id", "original_id", "resource_uri", "file_path", "metadata_path", "cached_at"},
+            {"document_id", "original_id", "resource_uri", "file_path", "metadata_path", "size_bytes", "cached_at"},
         )
 
     def test_stores_document_toc(self) -> None:
@@ -145,6 +147,34 @@ class CacheManagerTests(unittest.TestCase):
             self.assertEqual(cache.read_json(page_resource[0])["file_path"], str(page.path))
             self.assertEqual(cache.read_json(original_resource[0])["file_path"], str(original.path))
 
+    def test_records_size_bytes_for_cached_resources(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache = CacheManager(cache_dir=Path(temp_dir))
+            toc = cache.store_document_toc("doc_123", {"document_id": "doc_123", "toc": []})
+            section = cache.store_document_section("doc_123", "sec_1", {"section_id": "sec_1", "content": "abc"})
+            page = cache.store_page_image("doc_123", 1, b"image-bytes")
+            original = cache.store_original_file(
+                "doc_123",
+                "orig_1",
+                b"pdf-bytes",
+                filename="report.pdf",
+                media_type="application/pdf",
+            )
+
+            with sqlite3.connect(cache.db_path) as connection:
+                toc_size = connection.execute("SELECT size_bytes FROM document_tocs").fetchone()[0]
+                section_size = connection.execute("SELECT size_bytes FROM document_sections").fetchone()[0]
+                page_size = connection.execute("SELECT size_bytes FROM document_page_images").fetchone()[0]
+                original_size = connection.execute("SELECT size_bytes FROM document_originals").fetchone()[0]
+
+            self.assertEqual(toc_size, toc.path.stat().st_size)
+            self.assertEqual(section_size, section.path.stat().st_size)
+            self.assertEqual(page_size, page.path.stat().st_size + page.path.with_suffix(".json").stat().st_size)
+            self.assertEqual(
+                original_size,
+                original.path.stat().st_size + original.path.with_name("metadata.json").stat().st_size,
+            )
+
     def test_generates_encoded_resource_uri_segments(self) -> None:
         with TemporaryDirectory() as temp_dir:
             cache = CacheManager(cache_dir=Path(temp_dir))
@@ -213,6 +243,38 @@ class CacheManagerTests(unittest.TestCase):
             self.assertEqual(result["resources_deleted"], 1)
             self.assertIsNotNone(cache.get_document_toc("doc_123"))
             self.assertIsNone(cache.get_document_section("doc_123", "sec_1"))
+
+    def test_auto_prune_deletes_old_resources_when_size_cap_is_exceeded(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache = CacheManager(cache_dir=Path(temp_dir), max_bytes=500)
+            for index in range(4):
+                cache.store_document_section(
+                    f"doc_{index}",
+                    f"sec_{index}",
+                    {"section_id": f"sec_{index}", "content": "a" * 100},
+                )
+
+            self.assertLessEqual(cache._cache_size_bytes(), 250)
+            self.assertIsNone(cache.get_document_section("doc_0", "sec_0"))
+            self.assertIsNotNone(cache.get_document_section("doc_3", "sec_3"))
+
+    def test_manual_prune_reports_deleted_resources(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache = CacheManager(cache_dir=Path(temp_dir))
+            for index in range(5):
+                cache.store_document_section(
+                    f"doc_{index}",
+                    f"sec_{index}",
+                    {"section_id": f"sec_{index}", "content": "a" * 100},
+                )
+
+            result = cache.prune(max_bytes=500)
+
+            self.assertGreaterEqual(result["resources_deleted"], 1)
+            self.assertGreater(result["bytes_deleted"], 0)
+            self.assertLessEqual(cache._cache_size_bytes(), 250)
+            self.assertIsNone(cache.get_document_section("doc_0", "sec_0"))
+            self.assertIsNotNone(cache.get_document_section("doc_4", "sec_4"))
 
 
 if __name__ == "__main__":

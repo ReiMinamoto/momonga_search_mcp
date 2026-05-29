@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 import os
 from pathlib import Path
 
@@ -12,6 +13,10 @@ from platformdirs import user_cache_dir
 DEFAULT_BASE_URL = "https://api.momongasearch.com/v1"
 APP_CACHE_DIR_NAME = "momonga-search-mcp"
 CACHE_DIR_ENV = "MOMONGA_SEARCH_MCP_CACHE_DIR"
+CACHE_MAX_GB_ENV = "MOMONGA_SEARCH_MCP_CACHE_MAX_GB"
+BYTES_PER_GB = 1_000_000_000
+DEFAULT_CACHE_MAX_GB = Decimal("1")
+DEFAULT_CACHE_MAX_BYTES = int(DEFAULT_CACHE_MAX_GB * BYTES_PER_GB)
 MAX_LIST_LIMIT = 25
 MAX_SEARCH_TOP_K = 25
 MAX_SECTIONS_PER_CONTENT_CALL = 5
@@ -38,6 +43,7 @@ class Config:
     max_sections_per_content_call: int = MAX_SECTIONS_PER_CONTENT_CALL
     max_characters_per_content_call: int = MAX_CHARACTERS_PER_CONTENT_CALL
     api_timeout_seconds: int = API_TIMEOUT_SECONDS
+    cache_max_bytes: int = DEFAULT_CACHE_MAX_BYTES
     log_level: str = DEFAULT_LOG_LEVEL
 
     @classmethod
@@ -51,6 +57,7 @@ class Config:
             api_key=api_key,
             base_url=_get_str(values, "MOMONGA_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
             cache_dir=resolve_cache_dir(values),
+            cache_max_bytes=_get_cache_max_bytes(values),
             log_level=_get_str(values, "MOMONGA_MCP_LOG_LEVEL", DEFAULT_LOG_LEVEL).upper(),
         )
 
@@ -60,12 +67,6 @@ def resolve_cache_dir(env: Mapping[str, str] | None = None) -> Path:
     cache_dir = _optional_path(values, CACHE_DIR_ENV)
     if cache_dir is not None:
         return cache_dir
-
-    xdg_cache_home = values.get("XDG_CACHE_HOME", "").strip()
-    if xdg_cache_home:
-        xdg_path = Path(xdg_cache_home).expanduser()
-        if xdg_path.is_absolute():
-            return xdg_path / APP_CACHE_DIR_NAME
 
     return default_cache_dir()
 
@@ -83,3 +84,16 @@ def _optional_path(env: Mapping[str, str], name: str) -> Path | None:
     if not path.is_absolute():
         raise ConfigError(f"{name} must be an absolute path")
     return path
+
+
+def _get_cache_max_bytes(env: Mapping[str, str]) -> int:
+    value = env.get(CACHE_MAX_GB_ENV, "").strip()
+    if not value:
+        return DEFAULT_CACHE_MAX_BYTES
+    try:
+        parsed = Decimal(value)
+    except InvalidOperation as exc:
+        raise ConfigError(f"{CACHE_MAX_GB_ENV} must be a positive number") from exc
+    if parsed <= 0:
+        raise ConfigError(f"{CACHE_MAX_GB_ENV} must be a positive number")
+    return int(parsed * BYTES_PER_GB)

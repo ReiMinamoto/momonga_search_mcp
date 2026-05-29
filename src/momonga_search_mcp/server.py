@@ -198,7 +198,7 @@ class StdioMCPServer:
 
     def _cache_manager(self) -> CacheManager:
         if self.cache_manager is None:
-            self.cache_manager = CacheManager(self.config.cache_dir)
+            self.cache_manager = CacheManager(self.config.cache_dir, max_bytes=self.config.cache_max_bytes)
         return self.cache_manager
 
 

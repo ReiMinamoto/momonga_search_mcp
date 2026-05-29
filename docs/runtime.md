@@ -56,6 +56,8 @@ cache可否の基準は、取得対象が不変または実質不変かどうか
 export MOMONGA_SEARCH_MCP_CACHE_DIR=/home/user/.cache/momonga-search-mcp
 ```
 
+cache容量上限は `MOMONGA_SEARCH_MCP_CACHE_MAX_GB` で指定します。デフォルトは `1` GBです。serverはcache書き込み後に上限を超えている場合、今回書き込んだresourceを保護しつつ、古いcached resourceから上限の半分以下になるまで自動pruneします。
+
 キャッシュを削除する場合:
 
 ```sh
