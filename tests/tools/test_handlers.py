@@ -400,6 +400,10 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(section["reason"], "section_exceeds_inline_threshold")
         self.assertTrue(section["content_available_in_cache"])
         self.assertEqual(section["recommended_tools"], ["search_section_contents", "get_section_window"])
+        self.assertEqual(section["next_action"]["tool"], "search_section_contents")
+        self.assertEqual(section["next_action"]["argument_hints"]["document_id"], "doc_123")
+        self.assertEqual(section["next_action"]["argument_hints"]["section_id"], "sec_1")
+        self.assertEqual(section["next_action"]["fallback_tool"], "get_section_window")
         self.assertEqual(section["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
         self.assertNotIn("content", section)
         self.assertEqual(cached_payload["content"], "risk " + ("x" * 2996))
@@ -616,6 +620,9 @@ class ToolHandlerTests(unittest.TestCase):
             [resource["uri"] for resource in payload["resources"]],
             ["momonga://documents/doc_123/sections/sec_1"],
         )
+        self.assertEqual(payload["resources"][0]["document_id"], "doc_123")
+        self.assertEqual(payload["resources"][0]["resource_type"], "section")
+        self.assertEqual(payload["resources"][0]["section_id"], "sec_1")
 
     def test_list_cached_resources_reports_setup_error_when_cache_unavailable(self) -> None:
         response = call_tool(FakeApiClient(), {"name": "list_cached_resources", "arguments": {}})

@@ -135,6 +135,59 @@ class ToolResponseTests(unittest.TestCase):
 
         self.assertEqual(response, {"ok": True, "results": []})
 
+    def test_metadata_response_includes_ready_next_action(self) -> None:
+        response = success_response(
+            "get_document_metadata",
+            {
+                "document_id": "doc_123",
+                "title": "Report",
+                "content_status": "ready",
+                "reference_url": "https://example.com/report.pdf",
+            },
+        )
+
+        self.assertEqual(
+            response["next_action"],
+            {
+                "status": "ready",
+                "recommended_tools": ["get_document_toc", "get_document_content"],
+                "argument_hints": {"document_id": "doc_123"},
+            },
+        )
+
+    def test_metadata_response_includes_pending_release_next_action(self) -> None:
+        response = success_response(
+            "get_document_metadata",
+            {
+                "document_id": "doc_123",
+                "title": "Report",
+                "content_status": "pending_release",
+            },
+        )
+
+        self.assertEqual(response["next_action"]["status"], "pending_release")
+        self.assertIn("Wait", response["next_action"]["message"])
+
+    def test_metadata_response_includes_external_only_next_action(self) -> None:
+        response = success_response(
+            "get_document_metadata",
+            {
+                "document_id": "doc_123",
+                "title": "Report",
+                "content_status": "external_only",
+                "reference_url": "https://example.com/report.pdf",
+            },
+        )
+
+        self.assertEqual(
+            response["next_action"],
+            {
+                "status": "external_only",
+                "message": "Do not retry Momonga content retrieval; inspect the external reference instead.",
+                "reference_url": "https://example.com/report.pdf",
+            },
+        )
+
     def test_list_page_images_response_returns_available_page_numbers(self) -> None:
         response = success_response(
             "list_document_page_images",
@@ -399,6 +452,15 @@ class ToolResponseTests(unittest.TestCase):
                 "reason": "section_exceeds_inline_threshold",
                 "content_available_in_cache": True,
                 "recommended_tools": ["search_section_contents", "get_section_window"],
+                "next_action": {
+                    "tool": "search_section_contents",
+                    "argument_hints": {
+                        "document_id": "doc_123",
+                        "section_id": "sec_1",
+                        "query": "Search terms for the needed evidence in this section.",
+                    },
+                    "fallback_tool": "get_section_window",
+                },
                 "resource_uri": "momonga://documents/doc_123/sections/sec_1",
                 "source_resource_uri": "momonga://documents/doc_123/sections/sec_1",
                 "cached": False,
@@ -473,6 +535,15 @@ class ToolResponseTests(unittest.TestCase):
                 "reason": "section_exceeds_inline_threshold",
                 "content_available_in_cache": True,
                 "recommended_tools": ["search_section_contents", "get_section_window"],
+                "next_action": {
+                    "tool": "search_section_contents",
+                    "argument_hints": {
+                        "document_id": "doc_123",
+                        "section_id": "sec_2",
+                        "query": "Search terms for the needed evidence in this section.",
+                    },
+                    "fallback_tool": "get_section_window",
+                },
                 "resource_uri": "momonga://documents/doc_123/sections/sec_2",
                 "source_resource_uri": "momonga://documents/doc_123/sections/sec_2",
                 "cached": False,

@@ -97,7 +97,11 @@ def success_response(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
     if tool_name == "list_documents":
         return _results_response(payload, lambda item: _pick(item, DOCUMENT_FIELDS))
     if tool_name == "get_document_metadata":
-        return {"ok": True, **_pick(payload, DOCUMENT_FIELDS)}
+        response = {"ok": True, **_pick(payload, DOCUMENT_FIELDS)}
+        next_action = _metadata_next_action(response)
+        if next_action is not None:
+            response["next_action"] = next_action
+        return response
     if tool_name == "list_document_page_images":
         return {
             "ok": True,
@@ -168,6 +172,7 @@ def get_document_content_response(
     for section, resource_uri in content_sections:
         section_response = _content_section_response(
             section,
+            document_id=document_id,
             resource_uri=resource_uri,
             cached=cached_sections,
             return_content=return_content,
@@ -191,6 +196,7 @@ def get_document_content_response(
 def _content_section_response(
     section: dict[str, Any],
     *,
+    document_id: str,
     resource_uri: str,
     cached: bool,
     return_content: bool,
@@ -203,6 +209,7 @@ def _content_section_response(
             if _section_text_length(section, content) > MAX_INLINE_SECTION_CHARACTERS:
                 return _content_section_manifest_response(
                     section,
+                    document_id=document_id,
                     resource_uri=resource_uri,
                     cached=cached,
                     reason="section_exceeds_inline_threshold",
@@ -216,6 +223,7 @@ def _content_section_response(
 def _content_section_manifest_response(
     section: dict[str, Any],
     *,
+    document_id: str,
     resource_uri: str,
     cached: bool,
     reason: str,
@@ -225,10 +233,51 @@ def _content_section_manifest_response(
     response["reason"] = reason
     response["content_available_in_cache"] = True
     response["recommended_tools"] = ["search_section_contents", "get_section_window"]
+    response["next_action"] = _manifest_section_next_action(document_id, section.get("section_id"))
     response["resource_uri"] = resource_uri
     response["source_resource_uri"] = resource_uri
     response["cached"] = cached
     return response
+
+
+def _metadata_next_action(response: dict[str, Any]) -> dict[str, Any] | None:
+    content_status = response.get("content_status")
+    document_id = response.get("document_id")
+    reference_url = response.get("reference_url")
+    if content_status == "ready" and isinstance(document_id, str) and document_id:
+        return {
+            "status": "ready",
+            "recommended_tools": ["get_document_toc", "get_document_content"],
+            "argument_hints": {"document_id": document_id},
+        }
+    if content_status == "pending_release":
+        return {
+            "status": "pending_release",
+            "message": "Content is not available yet. Wait before retrying metadata or content retrieval.",
+        }
+    if content_status == "external_only":
+        next_action: dict[str, Any] = {
+            "status": "external_only",
+            "message": "Do not retry Momonga content retrieval; inspect the external reference instead.",
+        }
+        if isinstance(reference_url, str) and reference_url:
+            next_action["reference_url"] = reference_url
+        return next_action
+    return None
+
+
+def _manifest_section_next_action(document_id: str, section_id: Any) -> dict[str, Any]:
+    argument_hints: dict[str, Any] = {
+        "document_id": document_id,
+        "query": "Search terms for the needed evidence in this section.",
+    }
+    if isinstance(section_id, str) and section_id:
+        argument_hints["section_id"] = section_id
+    return {
+        "tool": "search_section_contents",
+        "argument_hints": argument_hints,
+        "fallback_tool": "get_section_window",
+    }
 
 
 def _section_text_length(section: dict[str, Any], content: str) -> int:

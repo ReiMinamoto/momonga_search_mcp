@@ -11,7 +11,7 @@ from pathlib import Path
 import shutil
 import sqlite3
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 SCHEMA_VERSION = 1
 PRUNE_TARGET_DIVISOR = 2
@@ -322,12 +322,12 @@ class CacheManager:
                 (*params, limit),
             ).fetchall()
         return [
-            {
-                "uri": row["resource_uri"],
-                "name": row["name"],
-                "description": row["description"],
-                "mimeType": row["mime_type"],
-            }
+            _json_resource_response(
+                row["resource_uri"],
+                name=row["name"],
+                description=row["description"],
+                mime_type=row["mime_type"],
+            )
             for row in rows
         ]
 
@@ -707,6 +707,46 @@ def _now_iso() -> str:
 
 def _relative_path(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
+
+
+def _json_resource_response(
+    resource_uri: str,
+    *,
+    name: str,
+    description: str,
+    mime_type: str,
+) -> dict[str, Any]:
+    response: dict[str, Any] = {
+        "uri": resource_uri,
+        "name": name,
+        "description": description,
+        "mimeType": mime_type,
+    }
+    response.update(_json_resource_identifiers(resource_uri))
+    return response
+
+
+def _json_resource_identifiers(resource_uri: str) -> dict[str, Any]:
+    prefix = "momonga://documents/"
+    if not resource_uri.startswith(prefix):
+        return {}
+    segments = [unquote(segment) for segment in resource_uri[len(prefix) :].split("/")]
+    if len(segments) < 2 or not segments[0]:
+        return {}
+    identifiers: dict[str, Any] = {"document_id": segments[0]}
+    if segments[1] == "toc" and len(segments) == 2:
+        identifiers["resource_type"] = "toc"
+    elif segments[1] == "sections" and len(segments) == 3:
+        identifiers.update({"resource_type": "section", "section_id": segments[2]})
+    elif segments[1] == "pages" and len(segments) == 3:
+        identifiers["resource_type"] = "page"
+        try:
+            identifiers["page_number"] = int(segments[2])
+        except ValueError:
+            identifiers["page_number"] = segments[2]
+    elif segments[1] == "originals" and len(segments) == 3:
+        identifiers.update({"resource_type": "original", "original_id": segments[2]})
+    return identifiers
 
 
 def _document_where(document_id: str | None) -> str:

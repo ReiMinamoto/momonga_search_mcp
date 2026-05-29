@@ -37,6 +37,8 @@ class CacheManagerTests(unittest.TestCase):
             self.assertEqual(resource.resource_uri, "momonga://documents/doc_123/toc")
             self.assertEqual(resources[0]["uri"], "momonga://documents/doc_123/toc")
             self.assertEqual(resources[0]["mimeType"], "application/json")
+            self.assertEqual(resources[0]["document_id"], "doc_123")
+            self.assertEqual(resources[0]["resource_type"], "toc")
             assert cached_resource is not None
             self.assertEqual(cache.read_json(cached_resource[0])["document_id"], "doc_123")
 
@@ -53,6 +55,25 @@ class CacheManagerTests(unittest.TestCase):
             [resource["uri"] for resource in resources],
             ["momonga://documents/doc_123/sections/sec_1"],
         )
+        self.assertEqual(resources[0]["document_id"], "doc_123")
+        self.assertEqual(resources[0]["resource_type"], "section")
+        self.assertEqual(resources[0]["section_id"], "sec_1")
+
+    def test_list_json_resources_includes_page_and_original_identifiers(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache = CacheManager(cache_dir=Path(temp_dir))
+            cache.store_page_image("doc/123", 3, b"image")
+            cache.store_original_file("doc/123", "xbrl/zip", b"zip", filename="report.zip", media_type="application/zip")
+
+            page_resources = cache.list_json_resources(document_id="doc/123", resource_type="page")
+            original_resources = cache.list_json_resources(document_id="doc/123", resource_type="original")
+
+        self.assertEqual(page_resources[0]["document_id"], "doc/123")
+        self.assertEqual(page_resources[0]["resource_type"], "page")
+        self.assertEqual(page_resources[0]["page_number"], 3)
+        self.assertEqual(original_resources[0]["document_id"], "doc/123")
+        self.assertEqual(original_resources[0]["resource_type"], "original")
+        self.assertEqual(original_resources[0]["original_id"], "xbrl/zip")
 
     def test_resource_tables_are_path_indexes(self) -> None:
         with TemporaryDirectory() as temp_dir:

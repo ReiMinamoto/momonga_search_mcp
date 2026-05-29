@@ -500,6 +500,7 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
                 "content_status": {"type": "string"},
                 "character_count": {"type": "integer"},
                 "reference_url": {"type": "string"},
+                "next_action": {"type": "object", "additionalProperties": True},
             }
         )
 
