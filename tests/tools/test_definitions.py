@@ -66,6 +66,9 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertIn("next_action", tools["get_document_metadata"]["outputSchema"]["properties"])
         self.assertIn("page_images", tools["list_document_page_images"]["outputSchema"]["properties"])
         self.assertIn("originals", tools["list_document_originals"]["outputSchema"]["properties"])
+        self.assertIn("resource_uri", tools["get_document_toc"]["outputSchema"]["properties"])
+        self.assertIn("cache_hit", tools["get_document_toc"]["outputSchema"]["properties"])
+        self.assertNotIn("cached", tools["get_document_toc"]["outputSchema"]["properties"])
         self.assertIn("content_sections", tools["get_document_content"]["outputSchema"]["properties"])
         self.assertIn("cache_hit", tools["get_document_content"]["outputSchema"]["properties"])
         self.assertIn("requested_section_ids", tools["get_document_content"]["outputSchema"]["properties"])
@@ -74,6 +77,23 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertNotIn("cached", tools["get_document_content"]["outputSchema"]["properties"])
         self.assertIn("matches", tools["search_section_contents"]["outputSchema"]["properties"])
         self.assertIn("start_offset", tools["get_section_window"]["outputSchema"]["properties"])
+        self.assertIn("next_cursor", tools["list_documents"]["outputSchema"]["properties"])
+        self.assertIn("next_cursor", tools["list_news"]["outputSchema"]["properties"])
+        self.assertNotIn("next_cursor", tools["search_issuers"]["outputSchema"]["properties"])
+        self.assertNotIn("next_cursor", tools["search_documents"]["outputSchema"]["properties"])
+        self.assertNotIn("next_cursor", tools["search_news"]["outputSchema"]["properties"])
+        self.assertIn("resource_uri", tools["get_document_original"]["outputSchema"]["properties"])
+        self.assertIn("cached", tools["get_document_original"]["outputSchema"]["properties"])
+        self.assertNotIn("cache_hit", tools["get_document_original"]["outputSchema"]["properties"])
+        self.assertIn("original_id", tools["get_document_original"]["outputSchema"]["properties"])
+        self.assertIn("filename", tools["get_document_original"]["outputSchema"]["properties"])
+        self.assertNotIn("page_number", tools["get_document_original"]["outputSchema"]["properties"])
+        self.assertIn("resource_uri", tools["get_document_page_image"]["outputSchema"]["properties"])
+        self.assertIn("cached", tools["get_document_page_image"]["outputSchema"]["properties"])
+        self.assertNotIn("cache_hit", tools["get_document_page_image"]["outputSchema"]["properties"])
+        self.assertIn("page_number", tools["get_document_page_image"]["outputSchema"]["properties"])
+        self.assertNotIn("original_id", tools["get_document_page_image"]["outputSchema"]["properties"])
+        self.assertNotIn("filename", tools["get_document_page_image"]["outputSchema"]["properties"])
 
     def test_list_tool_argument_alternatives_are_enforced_at_runtime(self) -> None:
         self.assertEqual(
@@ -112,12 +132,13 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertEqual(search_schema["required"], ["document_id", "section_id", "query"])
         self.assertEqual(search_schema["properties"]["match_type"]["enum"], ["lexical"])
         self.assertEqual(search_schema["properties"]["context_chars"]["minimum"], 50)
-        self.assertEqual(search_schema["properties"]["context_chars"]["maximum"], 500)
-        self.assertEqual(search_schema["properties"]["max_matches"]["minimum"], 1)
-        self.assertEqual(search_schema["properties"]["max_matches"]["maximum"], 15)
+        self.assertEqual(search_schema["properties"]["context_chars"]["maximum"], 300)
+        self.assertNotIn("max_matches", search_schema["properties"])
         output_schemas = {tool["name"]: tool["outputSchema"] for tool in tool_definitions()}
         search_output_schema = output_schemas["search_section_contents"]
         self.assertNotIn("heading_path", search_output_schema["properties"])
+        self.assertIn("matches_truncated", search_output_schema["properties"])
+        self.assertIn("next_action", search_output_schema["properties"])
 
         window_schema = schemas["get_section_window"]
         self.assertEqual(window_schema["required"], ["document_id", "section_id", "offset"])
@@ -151,9 +172,16 @@ class ToolDefinitionTests(unittest.TestCase):
 
     def test_skill_helper_schemas(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
+        output_schemas = {tool["name"]: tool["outputSchema"] for tool in tool_definitions()}
 
         self.assertEqual(schemas["list_skills"]["properties"], {})
         self.assertNotIn("required", schemas["list_skills"])
+        list_skills_item_schema = output_schemas["list_skills"]["properties"]["skills"]["items"]
+        self.assertEqual(
+            set(list_skills_item_schema["properties"]),
+            {"id", "title", "resource_uri", "description", "triggers", "recommended_first_tools"},
+        )
+        self.assertEqual(list_skills_item_schema["additionalProperties"], False)
         self.assertEqual(schemas["diagnose_setup"]["properties"], {})
         self.assertNotIn("required", schemas["diagnose_setup"])
         self.assertEqual(schemas["list_cached_resources"]["properties"]["limit"]["maximum"], 25)
@@ -273,9 +301,10 @@ def _representative_success_payloads() -> dict[str, dict[str, object]]:
             "section_title": "Risk",
             "match_type": "lexical",
             "query": "risk",
-            "context_chars": 300,
-            "max_matches": 5,
+            "context_chars": 150,
+            "max_matches": 15,
             "matches": [],
+            "matches_truncated": False,
             "source_resource_uri": "momonga://documents/doc_123/sections/sec_1",
             "cache_hit": True,
         },
@@ -341,7 +370,19 @@ def _representative_success_payloads() -> dict[str, dict[str, object]]:
                 ]
             },
         ),
-        "list_skills": {"ok": True, "skills": []},
+        "list_skills": {
+            "ok": True,
+            "skills": [
+                {
+                    "id": "document-research",
+                    "title": "Document Research",
+                    "resource_uri": "skill://skills/document-research.md",
+                    "description": "Research company disclosures.",
+                    "triggers": ["document"],
+                    "recommended_first_tools": ["search_issuers", "list_documents"],
+                }
+            ],
+        },
         "get_skill": {
             "ok": True,
             "id": "document-research",

@@ -28,8 +28,8 @@ from momonga_search_mcp.tools.response import (
 DEFAULT_CONFIG = Config(api_key="ms_test_xxx")
 TOOL_SCHEMAS = {**DOCUMENT_LOOKUP_TOOLS, **RETRIEVAL_TOOLS, **SKILL_HELPER_TOOLS}
 FULL_DOCUMENT_SECTION_ID = "__mcp_full_document__"
-DEFAULT_SECTION_SEARCH_CONTEXT_CHARS = 300
-DEFAULT_SECTION_SEARCH_MAX_MATCHES = 5
+DEFAULT_SECTION_SEARCH_CONTEXT_CHARS = 150
+SECTION_SEARCH_MAX_MATCHES = 15
 DEFAULT_SECTION_WINDOW_CHARACTERS = 1500
 SKILL_INDEX_GUARDED_TOOLS = {
     "search_issuers",
@@ -213,7 +213,7 @@ def _call_search_section_contents(
     if match_type != "lexical":
         raise ValueError("match_type must be lexical")
     context_chars = arguments.get("context_chars", DEFAULT_SECTION_SEARCH_CONTEXT_CHARS)
-    max_matches = arguments.get("max_matches", DEFAULT_SECTION_SEARCH_MAX_MATCHES)
+    max_matches = SECTION_SEARCH_MAX_MATCHES
     if cache_manager_getter is None:
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for search_section_contents")
 
@@ -228,8 +228,10 @@ def _call_search_section_contents(
     if not isinstance(content, str):
         raise ValueError("cached section does not contain searchable text content")
 
-    matches = _section_lexical_matches(content, query, context_chars=context_chars, max_matches=max_matches)
-    return {
+    raw_matches = _section_lexical_matches(content, query, context_chars=context_chars, max_matches=max_matches + 1)
+    matches_truncated = len(raw_matches) > max_matches
+    matches = raw_matches[:max_matches]
+    response: dict[str, Any] = {
         "ok": True,
         "document_id": document_id,
         "section_id": section_id,
@@ -239,9 +241,25 @@ def _call_search_section_contents(
         "context_chars": context_chars,
         "max_matches": max_matches,
         "matches": matches,
+        "matches_truncated": matches_truncated,
         "source_resource_uri": resource.resource_uri,
         "cache_hit": True,
     }
+    if matches_truncated:
+        response["next_action"] = {
+            "tool": "search_section_contents",
+            "reason": "too_many_matches",
+            "message": "Refine the query with more specific terms before reading windows.",
+            "argument_hints": {
+                "document_id": document_id,
+                "section_id": section_id,
+                "query": "More specific search terms for the needed evidence.",
+                "match_type": "lexical",
+                "context_chars": context_chars,
+                "max_matches": max_matches,
+            },
+        }
+    return response
 
 
 def _call_get_section_window(

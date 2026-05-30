@@ -46,12 +46,6 @@ BASE_OUTPUT_PROPERTIES: dict[str, Any] = {
     "error": COMMON_ERROR_SCHEMA,
 }
 
-RESOURCE_OUTPUT_PROPERTIES: dict[str, Any] = {
-    "cache_hit": {"type": "boolean"},
-    "cached": {"type": "boolean"},
-    "resource_uri": {"type": "string"},
-}
-
 TOOL_TITLES = {
     "search_issuers": "Search Issuers",
     "list_documents": "List Documents",
@@ -307,14 +301,8 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
                 "context_chars": {
                     "type": "integer",
                     "minimum": 50,
-                    "maximum": 500,
-                    "description": "Characters of context to include on each side of the match. Defaults to 300.",
-                },
-                "max_matches": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 15,
-                    "description": "Maximum matches to return. Defaults to 5.",
+                    "maximum": 300,
+                    "description": "Characters of context to include on each side of the match. Defaults to 150.",
                 },
             },
             "required": ["document_id", "section_id", "query"],
@@ -495,6 +483,8 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
 
     if tool_name in {"search_issuers", "list_documents", "list_news", "search_documents", "search_news"}:
         properties["results"] = {"type": "array", "items": {"type": "object", "additionalProperties": True}}
+
+    if tool_name in {"list_documents", "list_news"}:
         properties["next_cursor"] = {"type": "string"}
 
     if tool_name == "get_document_metadata":
@@ -543,7 +533,8 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
                 "selection_policy": {"type": "object", "additionalProperties": True},
                 "toc": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
                 "next_action_template": {"type": "object", "additionalProperties": True},
-                **RESOURCE_OUTPUT_PROPERTIES,
+                "resource_uri": {"type": "string"},
+                "cache_hit": {"type": "boolean"},
             }
         )
 
@@ -570,6 +561,8 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
                 "context_chars": {"type": "integer"},
                 "max_matches": {"type": "integer"},
                 "matches": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                "matches_truncated": {"type": "boolean"},
+                "next_action": {"type": "object", "additionalProperties": True},
                 "source_resource_uri": {"type": "string"},
                 "cache_hit": {"type": "boolean"},
             }
@@ -593,16 +586,28 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
             }
         )
 
-    if tool_name in {"get_document_page_image", "get_document_original"}:
+    if tool_name == "get_document_page_image":
         properties.update(
             {
                 "document_id": {"type": "string"},
                 "file_path": {"type": "string"},
                 "media_type": {"type": "string"},
                 "page_number": {"type": "integer"},
+                "resource_uri": {"type": "string"},
+                "cached": {"type": "boolean"},
+            }
+        )
+
+    if tool_name == "get_document_original":
+        properties.update(
+            {
+                "document_id": {"type": "string"},
+                "file_path": {"type": "string"},
+                "media_type": {"type": "string"},
                 "original_id": {"type": "string"},
                 "filename": {"type": "string"},
-                **RESOURCE_OUTPUT_PROPERTIES,
+                "resource_uri": {"type": "string"},
+                "cached": {"type": "boolean"},
             }
         )
 
@@ -623,7 +628,21 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
         )
 
     if tool_name == "list_skills":
-        properties["skills"] = {"type": "array", "items": {"type": "object", "additionalProperties": True}}
+        properties["skills"] = {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "resource_uri": {"type": "string"},
+                    "description": {"type": "string"},
+                    "triggers": {"type": "array", "items": {"type": "string"}},
+                    "recommended_first_tools": {"type": "array", "items": {"type": "string"}},
+                },
+                "additionalProperties": False,
+            },
+        }
 
     if tool_name == "get_skill":
         properties.update(

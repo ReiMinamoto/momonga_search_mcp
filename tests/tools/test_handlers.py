@@ -421,7 +421,7 @@ class ToolHandlerTests(unittest.TestCase):
                     "section_title": "Risk",
                     "heading_path": ["Business", "Risk"],
                     "character_count": 70,
-                    "content": "alpha price beta price gamma price delta",
+                    "content": " ".join(f"price{i} price" for i in range(16)),
                 },
             )
 
@@ -434,7 +434,6 @@ class ToolHandlerTests(unittest.TestCase):
                         "section_id": "sec_1",
                         "query": "price",
                         "context_chars": 50,
-                        "max_matches": 2,
                     },
                 },
                 cache_manager_getter=lambda: cache_manager,
@@ -446,8 +445,14 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(payload["section_title"], "Risk")
         self.assertNotIn("heading_path", payload)
         self.assertEqual(payload["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
-        self.assertEqual(len(payload["matches"]), 2)
-        self.assertEqual(payload["matches"][0]["offset"], 6)
+        self.assertEqual(payload["max_matches"], 15)
+        self.assertEqual(len(payload["matches"]), 15)
+        self.assertTrue(payload["matches_truncated"])
+        self.assertEqual(payload["next_action"]["tool"], "search_section_contents")
+        self.assertEqual(payload["next_action"]["reason"], "too_many_matches")
+        self.assertEqual(payload["next_action"]["argument_hints"]["document_id"], "doc_123")
+        self.assertEqual(payload["next_action"]["argument_hints"]["section_id"], "sec_1")
+        self.assertEqual(payload["matches"][0]["offset"], 0)
         self.assertEqual(payload["matches"][0]["matched_text"], "price")
         self.assertLessEqual(len(payload["matches"][0]["excerpt"]), len("price") + 100)
 
@@ -471,6 +476,8 @@ class ToolHandlerTests(unittest.TestCase):
 
         payload = response["structuredContent"]
         self.assertEqual(payload["matches"], [])
+        self.assertFalse(payload["matches_truncated"])
+        self.assertNotIn("next_action", payload)
         self.assertEqual(payload["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
 
     def test_search_section_contents_normalizes_query_and_preserves_original_offsets(self) -> None:

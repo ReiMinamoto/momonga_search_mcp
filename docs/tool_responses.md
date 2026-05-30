@@ -508,6 +508,15 @@ API response には document metadata も含まれますが、`get_document_toc`
       "reason": "section_exceeds_inline_threshold",
       "content_available_in_cache": true,
       "recommended_tools": ["search_section_contents", "get_section_window"],
+      "next_action": {
+        "tool": "search_section_contents",
+        "argument_hints": {
+          "document_id": "doc_123",
+          "section_id": "__mcp_full_document__",
+          "query": "Search terms for the needed evidence in this section."
+        },
+        "fallback_tool": "get_section_window"
+      },
       "resource_uri": "momonga://documents/doc_123/sections/__mcp_full_document__",
       "source_resource_uri": "momonga://documents/doc_123/sections/__mcp_full_document__",
       "cached": false
@@ -564,8 +573,8 @@ cache済み section 本文を lexical 検索し、該当箇所の短い抜粋だ
   "section_title": "Risk Factors",
   "match_type": "lexical",
   "query": "価格転嫁",
-  "context_chars": 300,
-  "max_matches": 5,
+  "context_chars": 150,
+  "max_matches": 15,
   "matches": [
     {
       "offset": 1234,
@@ -573,8 +582,30 @@ cache済み section 本文を lexical 検索し、該当箇所の短い抜粋だ
       "matched_text": "価格転嫁"
     }
   ],
+  "matches_truncated": false,
   "source_resource_uri": "momonga://documents/doc_123/sections/sec_1",
   "cache_hit": true
+}
+```
+
+`max_matches` は固定上限 15 を示します。`matches_truncated=true` の場合、15件を超える候補があります。query を具体化して再検索します。
+
+```json
+{
+  "matches_truncated": true,
+  "next_action": {
+    "tool": "search_section_contents",
+    "reason": "too_many_matches",
+    "message": "Refine the query with more specific terms before reading windows.",
+    "argument_hints": {
+      "document_id": "doc_123",
+      "section_id": "sec_1",
+      "query": "More specific search terms for the needed evidence.",
+      "match_type": "lexical",
+      "context_chars": 150,
+      "max_matches": 15
+    }
+  }
 }
 ```
 
