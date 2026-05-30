@@ -358,7 +358,7 @@ def _toc_next_action_template(
     document_id: Any,
     toc_mode: str,
 ) -> dict[str, Any] | None:
-    if toc_mode == "sections" or not isinstance(document_id, str) or not document_id:
+    if toc_mode != "outline" or not isinstance(document_id, str) or not document_id:
         return None
 
     return {

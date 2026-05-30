@@ -742,17 +742,7 @@ class ToolResponseTests(unittest.TestCase):
 
         self.assertEqual(response["toc_mode"], "subtree")
         self.assertEqual(response["selection_policy"]["reason"], "path_prefix_requested")
-        self.assertEqual(
-            response["next_action_template"],
-            {
-                "tool": "get_document_toc",
-                "argument_hints": {
-                    "document_id": "doc_123",
-                    "path_prefix": "Choose a relevant heading_path from the returned toc outline.",
-                    "include_sections": True,
-                },
-            },
-        )
+        self.assertNotIn("next_action_template", response)
         self.assertEqual(response["path_prefix"], ["Business"])
         self.assertEqual(len(response["toc"]), 1)
         self.assertEqual(response["toc"][0]["heading_path"], ["Business"])
