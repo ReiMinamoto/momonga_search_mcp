@@ -10,7 +10,7 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
-from momonga_search_mcp.cache import CachedResource, CacheManager
+from momonga_search_mcp.cache import CacheManager
 from momonga_search_mcp.config import MCP_PROTOCOL_VERSION, SERVER_NAME, SERVER_VERSION, Config
 from momonga_search_mcp.skills import get_skill, list_skills
 from momonga_search_mcp.tools.definitions import (
@@ -525,9 +525,10 @@ def _call_get_document_original(
     cache_manager = cache_manager_getter()
     cached = cache_manager.get_original_file(document_id, original_id)
     if cached is not None:
-        metadata = cache_manager.read_json(
-            CachedResource(resource_uri=cached.resource_uri, path=cached.path.with_name("metadata.json"))
-        )
+        metadata_resource = cache_manager.get_json_resource(cached.resource_uri)
+        if metadata_resource is None:
+            raise ToolSetupError("cached original metadata is unavailable")
+        metadata = cache_manager.read_json(metadata_resource[0])
         response = _download_response(
             "get_document_original",
             document_id=document_id,

@@ -68,7 +68,10 @@ class StdioMCPServer:
 
         logger.info("stdio input closed; stopping %s", SERVER_NAME)
 
-    def handle_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
+    def handle_message(self, message: Any) -> dict[str, Any] | None:
+        if not isinstance(message, dict):
+            return _error_response(None, -32600, "Invalid Request")
+
         is_notification = "id" not in message
         request_id = message.get("id")
         method = message.get("method")

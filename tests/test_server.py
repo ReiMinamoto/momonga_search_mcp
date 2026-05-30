@@ -75,6 +75,21 @@ class ServerTests(unittest.TestCase):
             },
         )
 
+    def test_rejects_non_object_json_rpc_message(self) -> None:
+        response = self.server.handle_message([])
+
+        self.assertEqual(
+            response,
+            {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                },
+            },
+        )
+
     def test_null_id_request_still_gets_response(self) -> None:
         response = self.server.handle_message({"jsonrpc": "2.0", "id": None, "method": "ping"})
 

@@ -1,6 +1,6 @@
 # Momonga Search MCP
 
-Momonga Search MCP は、個人的な開発による、企業公表資料・経済ニュースを LLM/Agent が安全に検索・取得・根拠提示するための workflow MCP server です。汎用Web検索MCPではありません。
+Momonga Search MCP は、企業公表資料・経済ニュースを LLM/Agent が安全に検索・取得・根拠提示するための workflow MCP server です。汎用Web検索MCPではありません。
 
 ## 機能
 

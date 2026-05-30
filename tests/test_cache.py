@@ -160,7 +160,7 @@ class CacheManagerTests(unittest.TestCase):
             self.assertEqual(cached_original.path.read_bytes(), b"pdf-bytes")
             self.assertEqual(json.loads(page.path.with_suffix(".json").read_text(encoding="utf-8"))["media_type"], "image/jpeg")
             self.assertEqual(
-                json.loads(original.path.with_name("metadata.json").read_text(encoding="utf-8"))["filename"],
+                json.loads(original.path.parent.parent.joinpath("metadata.json").read_text(encoding="utf-8"))["filename"],
                 "report.pdf",
             )
             assert page_resource is not None
@@ -193,8 +193,25 @@ class CacheManagerTests(unittest.TestCase):
             self.assertEqual(page_size, page.path.stat().st_size + page.path.with_suffix(".json").stat().st_size)
             self.assertEqual(
                 original_size,
-                original.path.stat().st_size + original.path.with_name("metadata.json").stat().st_size,
+                original.path.stat().st_size + original.path.parent.parent.joinpath("metadata.json").stat().st_size,
             )
+
+    def test_original_filename_metadata_json_does_not_overwrite_metadata(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            cache = CacheManager(cache_dir=Path(temp_dir))
+
+            original = cache.store_original_file(
+                "doc_123",
+                "orig_1",
+                b"file-bytes",
+                filename="metadata.json",
+                media_type="application/json",
+            )
+            metadata_path = original.path.parent.parent / "metadata.json"
+
+            self.assertEqual(original.path.read_bytes(), b"file-bytes")
+            self.assertEqual(json.loads(metadata_path.read_text(encoding="utf-8"))["filename"], "metadata.json")
+            self.assertNotEqual(original.path, metadata_path)
 
     def test_generates_encoded_resource_uri_segments(self) -> None:
         with TemporaryDirectory() as temp_dir:

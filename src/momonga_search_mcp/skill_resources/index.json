@@ -1,5 +1,5 @@
 {
-  "version": "0.1.3",
+  "version": "1.0.0",
   "description": "Lightweight workflow index for Momonga Search MCP. Read this before substantive research, then load only the matching detail skill. Pick a skill by matching the user's request against each skill's description and triggers (triggers are example phrases that should map to this skill). For tasks spanning multiple domains (e.g. disclosures and news, or research and file download), load each relevant retrieval skill in turn and then evidence-answering. Retrieval skills feed into evidence-answering; do not load evidence-answering first when retrieval has not happened yet.",
   "skills": [
     {

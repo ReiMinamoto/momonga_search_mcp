@@ -219,7 +219,7 @@ class CacheManager:
         safe_filename = filename.replace("/", "_").replace("\\", "_").strip()
         if not safe_filename or safe_filename in {".", ".."}:
             safe_filename = "file"
-        path = self._write_bytes(("documents", document_id, "originals", original_id, safe_filename), content)
+        path = self._write_bytes(("documents", document_id, "originals", original_id, "file", safe_filename), content)
         resource_uri = self.document_original_uri(document_id, original_id)
         stored_metadata = {
             **(metadata or {}),

@@ -13,7 +13,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from momonga_search_mcp.config import Config
+from momonga_search_mcp.config import SERVER_NAME, SERVER_VERSION, Config
 
 Transport = Callable[[Request, float], BinaryIO]
 PUBLIC_ERROR_FIELDS = (
@@ -91,7 +91,7 @@ class MomongaApiClient:
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {self.api_key}",
-            "User-Agent": "momonga-search-mcp/0.1",
+            "User-Agent": f"{SERVER_NAME}/{SERVER_VERSION}",
         }
         if payload is not None:
             data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -130,7 +130,7 @@ class MomongaApiClient:
             headers={
                 "Accept": "*/*",
                 "Authorization": f"Bearer {self.api_key}",
-                "User-Agent": "momonga-search-mcp/0.1",
+                "User-Agent": f"{SERVER_NAME}/{SERVER_VERSION}",
             },
             method=method.upper(),
         )
