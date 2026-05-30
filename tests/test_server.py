@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from io import StringIO
+from io import BytesIO, StringIO, TextIOWrapper
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from momonga_search_mcp.config import Config, ConfigError
-from momonga_search_mcp.server import StdioMCPServer, main
+from momonga_search_mcp.server import StdioMCPServer, _emit_json_line, main
 from tests.tools.fakes import FakeApiClient
 
 
@@ -257,7 +257,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(list_response)
         assert list_response is not None
-        payload = list_response["result"]["structuredContent"]
+        payload = json.loads(list_response["result"]["content"][0]["text"])
         resource_uris = {resource["uri"] for resource in payload["resources"]}
         self.assertNotIn("momonga://documents/doc_123/toc", resource_uris)
         self.assertIn("momonga://documents/doc_123/sections/sec_1", resource_uris)
@@ -370,8 +370,8 @@ class ServerTests(unittest.TestCase):
         self.assertIsNotNone(response)
         assert response is not None
         self.assertTrue(response["result"]["isError"])
-        payload = response["result"]["structuredContent"]
-        self.assertIn("See structuredContent.", response["result"]["content"][0]["text"])
+        payload = json.loads(response["result"]["content"][0]["text"])
+        self.assertIn("invalid_request", response["result"]["content"][0]["text"])
         self.assertEqual(payload["error"]["code"], "invalid_request")
         self.assertIsNone(payload["error"]["status"])
         self.assertEqual(payload["error"]["message"], "document_id is required")
@@ -411,7 +411,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertNotIn("isError", response["result"])
         self.assertEqual(
             [skill["id"] for skill in payload["skills"]],
@@ -425,6 +425,25 @@ class ServerTests(unittest.TestCase):
             ],
         )
         self.assertIn("triggers", payload["skills"][0])
+
+    def test_emit_json_line_writes_utf8_bytes_even_with_legacy_text_wrapper(self) -> None:
+        server = self._initialized_server(Config(api_key="ms_test_xxx"))
+        response = server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "list_skills", "arguments": {}},
+            }
+        )
+        assert response is not None
+
+        output_buffer = BytesIO()
+        output_stream = TextIOWrapper(output_buffer, encoding="cp932")
+        _emit_json_line(output_stream, response)
+        parsed = json.loads(output_buffer.getvalue().decode("utf-8"))
+        payload = json.loads(parsed["result"]["content"][0]["text"])
+        self.assertIn("開示", payload["skills"][0]["triggers"])
 
     def test_evidence_compression_skill_resource(self) -> None:
         index_response = self.server.handle_message(
@@ -464,7 +483,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertEqual(payload["id"], "news-research")
         self.assertIn("# News Research Skill", payload["content"])
 
@@ -483,7 +502,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])
@@ -503,7 +522,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         next_action = payload["error"]["next_action"]
@@ -600,7 +619,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])
@@ -654,7 +673,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])
@@ -711,7 +730,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])
@@ -790,12 +809,14 @@ class ServerMainTests(unittest.TestCase):
             patch("momonga_search_mcp.server.load_dotenv"),
             patch("momonga_search_mcp.server.Config.from_env", return_value=Config(api_key="ms_test_xxx")),
             patch("momonga_search_mcp.server.configure_logging"),
+            patch("momonga_search_mcp.server.configure_stdio_encoding") as configure_stdio,
             patch("momonga_search_mcp.server.StdioMCPServer", StubServer),
         ):
             exit_code = main()
 
         self.assertEqual(exit_code, 0)
         self.assertTrue(served["served"])
+        configure_stdio.assert_called_once_with()
 
 
 if __name__ == "__main__":

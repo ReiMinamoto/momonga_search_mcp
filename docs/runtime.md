@@ -7,8 +7,8 @@
 - MCP transport: stdio
 - MCP protocolVersion: `2025-11-25`
 - Python: `>=3.13`
-- tool response: full payloadは `structuredContent` にJSON objectとして返し、`content[].text` は短いsummaryだけを返します。
-- tool metadata: `tools/list` は `title`、`annotations`、主要fieldの `outputSchema` を返します。`outputSchema` はMCP tool responseのトップレベル契約を示すもので、API由来のネストした構造は後方互換性のため緩く扱います。
+- tool response: full payloadは `content[].text` にJSON textとして返します。Claude Desktop互換性のため `structuredContent` は返しません。
+- tool metadata: `tools/list` は `title` と `annotations` を返します。Claude Desktop互換性のため `outputSchema` は返しません。
 
 ## 固定ガードレール
 

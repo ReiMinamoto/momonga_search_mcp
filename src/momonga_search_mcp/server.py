@@ -62,8 +62,7 @@ class StdioMCPServer:
                 response = _error_response(None, -32603, "Internal error")
 
             if response is not None:
-                self.output_stream.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n")
-                self.output_stream.flush()
+                _emit_json_line(self.output_stream, response)
 
         logger.info("stdio input closed; stopping %s", SERVER_NAME)
 
@@ -215,6 +214,28 @@ def _error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
     }
 
 
+def _emit_json_line(output_stream: TextIO, payload: dict[str, Any]) -> None:
+    line = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+    buffer = getattr(output_stream, "buffer", None)
+    if buffer is not None:
+        buffer.write(line.encode("utf-8"))
+        buffer.flush()
+        return
+    output_stream.write(line)
+    output_stream.flush()
+
+
+def configure_stdio_encoding() -> None:
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8")
+        except (OSError, ValueError):
+            logger.debug("failed to reconfigure %s to utf-8", getattr(stream, "name", "stream"), exc_info=True)
+
+
 def configure_logging(level_name: str) -> None:
     level = getattr(logging, level_name.upper(), logging.INFO)
     logging.basicConfig(
@@ -233,6 +254,7 @@ def main() -> int:
         return 78
 
     configure_logging(config.log_level)
+    configure_stdio_encoding()
     StdioMCPServer(config).serve_forever()
     return 0
 
