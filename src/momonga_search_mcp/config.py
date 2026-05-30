@@ -51,8 +51,6 @@ class Config:
     def from_env(cls, env: Mapping[str, str] | None = None) -> Config:
         values = os.environ if env is None else env
         api_key = values.get("MOMONGA_SEARCH_API_KEY", "").strip()
-        if not api_key:
-            raise ConfigError("MOMONGA_SEARCH_API_KEY is required")
 
         return cls(
             api_key=api_key,

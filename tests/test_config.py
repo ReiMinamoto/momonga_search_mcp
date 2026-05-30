@@ -16,9 +16,10 @@ from momonga_search_mcp.config import (
 
 
 class ConfigTests(unittest.TestCase):
-    def test_requires_api_key(self) -> None:
-        with self.assertRaisesRegex(ConfigError, "MOMONGA_SEARCH_API_KEY"):
-            Config.from_env({})
+    def test_allows_missing_api_key_for_diagnose_setup(self) -> None:
+        config = Config.from_env({})
+
+        self.assertEqual(config.api_key, "")
 
     def test_loads_defaults_from_env(self) -> None:
         config = Config.from_env({"MOMONGA_SEARCH_API_KEY": "ms_test_xxx"})

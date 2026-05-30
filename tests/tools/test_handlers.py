@@ -651,6 +651,33 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertNotIn("api_key", payload)
         self.assertNotIn("secret-key", str(payload))
 
+    def test_diagnose_setup_reports_missing_api_key(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            config = Config(api_key="", base_url="https://example.test/v1", cache_dir=Path(temp_dir))
+
+            response = call_tool(FakeApiClient(), {"name": "diagnose_setup", "arguments": {}}, config=config)
+
+        payload = response["structuredContent"]
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["api_key_configured"], False)
+        self.assertNotIn("api_key", payload)
+
+    def test_api_tools_report_setup_error_when_api_key_missing(self) -> None:
+        api_client = FakeApiClient()
+        calls = [
+            {"name": "search_issuers", "arguments": {"q": "Toyota"}},
+            {"name": "get_document_toc", "arguments": {"document_id": "doc_123"}},
+        ]
+
+        for params in calls:
+            response = call_tool(api_client, params, config=Config(api_key=""))
+
+            payload = response["structuredContent"]
+            self.assertTrue(response["isError"])
+            self.assertEqual(payload["error"]["code"], "server_setup_error")
+            self.assertIn("MOMONGA_SEARCH_API_KEY is required", payload["error"]["message"])
+        self.assertEqual(api_client.calls, [])
+
     def test_search_document_match_does_not_overwrite_cached_section_resource(self) -> None:
         api_client = FakeApiClient()
         api_client.response = {

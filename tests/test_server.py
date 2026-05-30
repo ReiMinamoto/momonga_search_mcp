@@ -283,6 +283,7 @@ class ServerTests(unittest.TestCase):
             prompt_names,
             ["use_document_research", "use_news_research", "use_evidence_answering"],
         )
+        self.assertEqual(list_response["result"]["prompts"][0]["title"], "Use Document Research")
 
         get_response = self.server.handle_message(
             {
@@ -302,6 +303,31 @@ class ServerTests(unittest.TestCase):
         self.assertIn("skill://skills/document-research.md", text)
         self.assertIn("Toyota", text)
         self.assertIn("risk factors", text)
+
+    def test_prompts_get_rejects_unknown_arguments(self) -> None:
+        response = self.server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "prompts/get",
+                "params": {
+                    "name": "use_news_research",
+                    "arguments": {"theme": "monetary policy", "ignored": "x"},
+                },
+            }
+        )
+
+        self.assertEqual(
+            response,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "error": {
+                    "code": -32602,
+                    "message": "unknown prompt arguments: ignored",
+                },
+            },
+        )
 
     def test_tools_call_validates_required_arguments(self) -> None:
         response = self.server.handle_message(

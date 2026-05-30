@@ -26,7 +26,7 @@ from momonga_search_mcp.tools.response import (
     tool_json_result,
 )
 
-DEFAULT_CONFIG = Config(api_key="")
+DEFAULT_CONFIG = Config(api_key="ms_test_xxx")
 TOOL_SCHEMAS = {**DOCUMENT_LOOKUP_TOOLS, **RETRIEVAL_TOOLS, **SKILL_HELPER_TOOLS}
 FULL_DOCUMENT_SECTION_ID = "__mcp_full_document__"
 DEFAULT_SECTION_SEARCH_CONTEXT_CHARS = 300
@@ -41,6 +41,20 @@ SKILL_INDEX_GUARDED_TOOLS = {
     "get_section_window",
     "search_documents",
     "search_news",
+}
+API_KEY_REQUIRED_TOOLS = {
+    "search_issuers",
+    "list_documents",
+    "get_document_metadata",
+    "get_document_toc",
+    "list_document_page_images",
+    "list_document_originals",
+    "list_news",
+    "get_document_content",
+    "search_documents",
+    "search_news",
+    "get_document_page_image",
+    "get_document_original",
 }
 
 
@@ -98,6 +112,8 @@ def call_tool(
             return tool_json_result(_call_diagnose_setup(config))
         if name == "list_cached_resources":
             return tool_json_result(_call_list_cached_resources(arguments, cache_manager_getter))
+        if name in API_KEY_REQUIRED_TOOLS and not config.api_key.strip():
+            raise ToolSetupError("MOMONGA_SEARCH_API_KEY is required for Momonga Search API tools")
         if name == "search_issuers":
             payload = api_client.get("/issuers/search", _require_arguments(arguments, ("q",), optional=("limit",)))
         elif name == "list_documents":
