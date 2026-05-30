@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from io import StringIO
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
-from momonga_search_mcp.config import Config
-from momonga_search_mcp.server import StdioMCPServer
+from momonga_search_mcp.config import Config, ConfigError
+from momonga_search_mcp.server import StdioMCPServer, main
 from tests.tools.fakes import FakeApiClient
 
 
@@ -304,6 +306,31 @@ class ServerTests(unittest.TestCase):
         self.assertIn("skill://skills/document-research.md", text)
         self.assertIn("Toyota", text)
         self.assertIn("risk factors", text)
+
+    def test_prompts_get_rejects_missing_required_argument(self) -> None:
+        response = self.server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "prompts/get",
+                "params": {
+                    "name": "use_document_research",
+                    "arguments": {"target": "Toyota"},
+                },
+            }
+        )
+
+        self.assertEqual(
+            response,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "error": {
+                    "code": -32602,
+                    "message": "theme is required",
+                },
+            },
+        )
 
     def test_prompts_get_rejects_unknown_arguments(self) -> None:
         response = self.server.handle_message(
@@ -688,6 +715,87 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])
+
+
+class ServerLoopTests(unittest.TestCase):
+    def _serve(self, payloads: str) -> list[dict[str, object]]:
+        input_stream = StringIO(payloads)
+        output_stream = StringIO()
+        server = StdioMCPServer(
+            Config(api_key="ms_test_xxx"),
+            input_stream=input_stream,
+            output_stream=output_stream,
+        )
+        server.serve_forever()
+        return [json.loads(line) for line in output_stream.getvalue().splitlines() if line.strip()]
+
+    def test_serve_forever_processes_requests_and_skips_blank_lines(self) -> None:
+        payloads = "\n   \n" + json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\n"
+
+        responses = self._serve(payloads)
+
+        self.assertEqual(responses, [{"jsonrpc": "2.0", "id": 1, "result": {}}])
+
+    def test_serve_forever_reports_parse_error_for_invalid_json(self) -> None:
+        responses = self._serve("not-json\n")
+
+        self.assertEqual(
+            responses,
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32700, "message": "Parse error"},
+                }
+            ],
+        )
+
+    def test_serve_forever_reports_internal_error_when_handler_raises(self) -> None:
+        input_stream = StringIO(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\n")
+        output_stream = StringIO()
+        server = StdioMCPServer(
+            Config(api_key="ms_test_xxx"),
+            input_stream=input_stream,
+            output_stream=output_stream,
+        )
+
+        with patch.object(server, "handle_message", side_effect=RuntimeError("boom")):
+            server.serve_forever()
+
+        response = json.loads(output_stream.getvalue())
+        self.assertEqual(response, {"jsonrpc": "2.0", "id": None, "error": {"code": -32603, "message": "Internal error"}})
+
+
+class ServerMainTests(unittest.TestCase):
+    def test_main_returns_config_error_exit_code(self) -> None:
+        with (
+            patch("momonga_search_mcp.server.load_dotenv"),
+            patch("momonga_search_mcp.server.Config.from_env", side_effect=ConfigError("missing api key")),
+        ):
+            exit_code = main()
+
+        self.assertEqual(exit_code, 78)
+
+    def test_main_serves_until_stream_closes(self) -> None:
+        served: dict[str, object] = {}
+
+        class StubServer:
+            def __init__(self, config: Config) -> None:
+                served["config"] = config
+
+            def serve_forever(self) -> None:
+                served["served"] = True
+
+        with (
+            patch("momonga_search_mcp.server.load_dotenv"),
+            patch("momonga_search_mcp.server.Config.from_env", return_value=Config(api_key="ms_test_xxx")),
+            patch("momonga_search_mcp.server.configure_logging"),
+            patch("momonga_search_mcp.server.StdioMCPServer", StubServer),
+        ):
+            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(served["served"])
 
 
 if __name__ == "__main__":

@@ -30,6 +30,24 @@ class ToolHandlerTests(unittest.TestCase):
             call_tool(api_client, {"name": name, "arguments": arguments})
             self.assertEqual(api_client.calls[-1], ("GET", expected_path, expected_params))
 
+    def test_call_tool_routes_search_issuers(self) -> None:
+        api_client = FakeApiClient()
+        api_client.response = {
+            "results": [{"security_code": "8058", "edinet_code": "E02529", "name": "Issuer", "internal_extra": "dropped"}]
+        }
+
+        response = call_tool(api_client, {"name": "search_issuers", "arguments": {"q": "8058", "limit": 5}})
+
+        payload = response["structuredContent"]
+        self.assertEqual(api_client.calls, [("GET", "/issuers/search", {"q": "8058", "limit": 5})])
+        self.assertEqual(
+            payload,
+            {
+                "ok": True,
+                "results": [{"security_code": "8058", "edinet_code": "E02529", "name": "Issuer"}],
+            },
+        )
+
     def test_call_tool_quotes_document_id_path_components(self) -> None:
         api_client = FakeApiClient()
         document_id = "doc/with space"

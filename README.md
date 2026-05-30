@@ -79,7 +79,7 @@ Prompts:
 
 | 環境変数 | 必須 | デフォルト | 意味 |
 | --- | --- | --- | --- |
-| `MOMONGA_SEARCH_API_KEY` | はい | なし | Momonga Search APIキーです。未設定の場合、サーバーは起動しません。 |
+| `MOMONGA_SEARCH_API_KEY` | API tool利用時 | なし | Momonga Search APIキーです。未設定でもMCP serverは起動しますが、`search_issuers` などのAPI toolは `server_setup_error` を返します。`diagnose_setup` で設定状態を確認できます。 |
 | `MOMONGA_BASE_URL` | いいえ | `https://api.momongasearch.com/v1` | Momonga Search APIのbase URLです。ステージング環境や専用エンドポイントを使う場合に上書きします。 |
 | `MOMONGA_SEARCH_MCP_CACHE_DIR` | いいえ | OS標準のuser cache directory | MCP側の必須キャッシュ保存先ディレクトリです。 |
 | `MOMONGA_SEARCH_MCP_CACHE_MAX_GB` | いいえ | `1` | cache書き込み後に古いresourceを自動pruneする容量上限です。単位はGBです。 |
