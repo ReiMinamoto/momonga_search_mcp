@@ -444,7 +444,7 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(api_client.calls, [])
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["section_title"], "Risk")
-        self.assertEqual(payload["heading_path"], ["Business", "Risk"])
+        self.assertNotIn("heading_path", payload)
         self.assertEqual(payload["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
         self.assertEqual(len(payload["matches"]), 2)
         self.assertEqual(payload["matches"][0]["offset"], 6)
@@ -540,6 +540,7 @@ class ToolHandlerTests(unittest.TestCase):
         payload = response["structuredContent"]
         self.assertEqual(api_client.calls, [])
         self.assertEqual(payload["content"], "789abc")
+        self.assertNotIn("heading_path", payload)
         self.assertEqual(payload["start_offset"], 7)
         self.assertEqual(payload["end_offset"], 13)
         self.assertEqual(payload["actual_characters"], 6)

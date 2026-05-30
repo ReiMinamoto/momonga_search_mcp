@@ -625,9 +625,6 @@ def _section_metadata(section: dict[str, Any]) -> dict[str, Any]:
     section_title = section.get("section_title")
     if isinstance(section_title, str):
         metadata["section_title"] = section_title
-    heading_path = section.get("heading_path")
-    if isinstance(heading_path, list):
-        metadata["heading_path"] = [item for item in heading_path if isinstance(item, str)]
     return metadata
 
 

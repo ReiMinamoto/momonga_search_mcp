@@ -115,11 +115,16 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertEqual(search_schema["properties"]["context_chars"]["maximum"], 500)
         self.assertEqual(search_schema["properties"]["max_matches"]["minimum"], 1)
         self.assertEqual(search_schema["properties"]["max_matches"]["maximum"], 15)
+        output_schemas = {tool["name"]: tool["outputSchema"] for tool in tool_definitions()}
+        search_output_schema = output_schemas["search_section_contents"]
+        self.assertNotIn("heading_path", search_output_schema["properties"])
 
         window_schema = schemas["get_section_window"]
         self.assertEqual(window_schema["required"], ["document_id", "section_id", "offset"])
         self.assertEqual(window_schema["properties"]["offset"]["minimum"], 0)
         self.assertEqual(window_schema["properties"]["max_characters"]["maximum"], 5000)
+        window_output_schema = output_schemas["get_section_window"]
+        self.assertNotIn("heading_path", window_output_schema["properties"])
 
     def test_get_document_toc_schema_allows_outline_options(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
@@ -266,7 +271,6 @@ def _representative_success_payloads() -> dict[str, dict[str, object]]:
             "document_id": "doc_123",
             "section_id": "sec_1",
             "section_title": "Risk",
-            "heading_path": ["Business", "Risk"],
             "match_type": "lexical",
             "query": "risk",
             "context_chars": 300,
@@ -280,7 +284,6 @@ def _representative_success_payloads() -> dict[str, dict[str, object]]:
             "document_id": "doc_123",
             "section_id": "sec_1",
             "section_title": "Risk",
-            "heading_path": ["Business", "Risk"],
             "offset": 0,
             "start_offset": 0,
             "end_offset": 4,
