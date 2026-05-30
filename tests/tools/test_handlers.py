@@ -587,14 +587,16 @@ class ToolHandlerTests(unittest.TestCase):
                 cache_manager_getter=lambda: cache_manager,
             )
             near_start = json.loads(near_start["content"][0]["text"])
-            near_end = json.loads(call_tool(
-                FakeApiClient(),
-                {
-                    "name": "get_section_window",
-                    "arguments": {"document_id": "doc_123", "section_id": "sec_1", "offset": 100, "max_characters": 4},
-                },
-                cache_manager_getter=lambda: cache_manager,
-            )["content"][0]["text"])
+            near_end = json.loads(
+                call_tool(
+                    FakeApiClient(),
+                    {
+                        "name": "get_section_window",
+                        "arguments": {"document_id": "doc_123", "section_id": "sec_1", "offset": 100, "max_characters": 4},
+                    },
+                    cache_manager_getter=lambda: cache_manager,
+                )["content"][0]["text"]
+            )
 
         self.assertEqual(near_start["start_offset"], 0)
         self.assertEqual(near_start["content"], "0123")
@@ -674,6 +676,7 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(payload["base_url"], "https://example.test/v1")
         self.assertEqual(payload["cache_dir"], temp_dir)
         self.assertEqual(payload["cache_writable"], True)
+        self.assertIn("api_tls_probe", payload)
         self.assertEqual(payload["server_name"], "momonga-search-mcp")
         self.assertEqual(payload["protocol_version"], "2025-11-25")
         self.assertNotIn("api_key", payload)

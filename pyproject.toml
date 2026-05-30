@@ -9,6 +9,7 @@ license-files = ["LICENSE"]
 dependencies = [
     "platformdirs>=4.5.1",
     "python-dotenv>=1.2.1",
+    "truststore>=0.10",
 ]
 
 [project.scripts]

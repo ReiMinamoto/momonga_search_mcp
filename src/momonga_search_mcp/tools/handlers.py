@@ -8,7 +8,7 @@ import unicodedata
 from urllib.parse import quote
 from uuid import uuid4
 
-from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
+from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response, probe_tls_connectivity
 from momonga_search_mcp.cache import CacheManager
 from momonga_search_mcp.config import MCP_PROTOCOL_VERSION, SERVER_NAME, Config, resolved_server_version
 from momonga_search_mcp.skills import get_skill, list_skills
@@ -358,6 +358,7 @@ def _call_diagnose_setup(config: Config) -> dict[str, Any]:
         "base_url": config.base_url,
         "cache_dir": str(config.cache_dir),
         "cache_writable": cache_writable,
+        "api_tls_probe": probe_tls_connectivity(config.base_url),
         "server_name": SERVER_NAME,
         "server_version": resolved_server_version(),
         "protocol_version": MCP_PROTOCOL_VERSION,

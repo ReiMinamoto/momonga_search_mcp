@@ -3,12 +3,13 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from io import BytesIO
+import ssl
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
-from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
+from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, _ssl_context, api_error_response, probe_tls_connectivity
 from momonga_search_mcp.config import Config
 
 
@@ -48,12 +49,13 @@ class ApiClientTests(unittest.TestCase):
         self.assertEqual(captured["auth"], "Bearer ms_test_xxx")
         self.assertEqual(captured["timeout"], 7)
 
-    def test_default_transport_passes_timeout_as_keyword(self) -> None:
+    def test_default_transport_passes_timeout_and_ssl_context_as_keywords(self) -> None:
         captured: dict[str, object] = {}
 
-        def fake_urlopen(request: Request, *, timeout: float) -> FakeResponse:
+        def fake_urlopen(request: Request, *, timeout: float, context: object) -> FakeResponse:
             captured["url"] = request.full_url
             captured["timeout"] = timeout
+            captured["context"] = context
             return FakeResponse(b'{"ok":true}')
 
         client = MomongaApiClient(Config(api_key="ms_test_xxx", base_url="https://example.test/v1", api_timeout_seconds=9))
@@ -64,6 +66,22 @@ class ApiClientTests(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         self.assertEqual(captured["url"], "https://example.test/v1/documents")
         self.assertEqual(captured["timeout"], 9)
+        self.assertIs(captured["context"], client._ssl_context)
+
+    def test_ssl_context_uses_truststore(self) -> None:
+        with patch("momonga_search_mcp.api.truststore.SSLContext") as mock_ssl_context:
+            mock_ssl_context.return_value = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context = _ssl_context()
+
+        mock_ssl_context.assert_called_once_with(ssl.PROTOCOL_TLS_CLIENT)
+        self.assertIsInstance(context, ssl.SSLContext)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+
+    def test_probe_tls_connectivity_rejects_non_https_base_url(self) -> None:
+        result = probe_tls_connectivity("http://example.test/v1")
+
+        self.assertEqual(result["ok"], False)
+        self.assertEqual(result["error"], "unsupported_scheme")
 
     def test_post_sends_json_body(self) -> None:
         captured: dict[str, object] = {}
