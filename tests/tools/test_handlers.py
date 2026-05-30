@@ -762,8 +762,8 @@ class ToolHandlerTests(unittest.TestCase):
         api_client.response = {
             "document_id": "doc_123",
             "title": "Report",
-            "character_count": 9,
-            "content": "full body",
+            "character_count": 9000,
+            "content": "x" * 9000,
             "content_sections": [{"section_id": "ignored", "content": "ignored"}],
         }
         with TemporaryDirectory() as temp_dir:
@@ -782,8 +782,9 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertFalse(payload["cache_hit"])
         self.assertEqual(payload["content_sections"][0]["section_id"], "__mcp_full_document__")
         self.assertEqual(payload["content_sections"][0]["section_title"], "Full document")
-        self.assertEqual(payload["content_sections"][0]["character_count"], 9)
-        self.assertEqual(payload["content_sections"][0]["content"], "full body")
+        self.assertEqual(payload["content_sections"][0]["character_count"], 9000)
+        self.assertEqual(payload["content_sections"][0]["content"], "x" * 9000)
+        self.assertEqual(payload["content_sections"][0]["content_mode"], "inline")
         self.assertIsNotNone(cached_section)
 
     def test_get_document_content_validates_section_count_and_rejects_offset(self) -> None:

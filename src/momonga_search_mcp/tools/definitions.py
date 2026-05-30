@@ -544,6 +544,7 @@ def _tool_output_schema(tool_name: str) -> dict[str, Any]:
                 "document_id": {"type": "string"},
                 "content_sections": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
                 "max_inline_section_characters": {"type": "integer"},
+                "max_inline_full_document_characters": {"type": "integer"},
                 "cache_hit": {"type": "boolean"},
                 "requested_section_ids": {"type": "array", "items": {"type": "string"}},
                 "missing_section_ids": {"type": "array", "items": {"type": "string"}},

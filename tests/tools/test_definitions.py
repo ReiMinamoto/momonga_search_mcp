@@ -71,6 +71,7 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertNotIn("cached", tools["get_document_toc"]["outputSchema"]["properties"])
         self.assertIn("content_sections", tools["get_document_content"]["outputSchema"]["properties"])
         self.assertIn("cache_hit", tools["get_document_content"]["outputSchema"]["properties"])
+        self.assertIn("max_inline_full_document_characters", tools["get_document_content"]["outputSchema"]["properties"])
         self.assertIn("requested_section_ids", tools["get_document_content"]["outputSchema"]["properties"])
         self.assertIn("missing_section_ids", tools["get_document_content"]["outputSchema"]["properties"])
         self.assertNotIn("resource_uri", tools["get_document_content"]["outputSchema"]["properties"])

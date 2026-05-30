@@ -35,6 +35,8 @@ CONTENT_SECTION_FIELDS = ("section_id", "section_title", "character_count", "con
 TOC_FIELDS = ("section_id", "section_title", "heading_path", "character_count", "page_number")
 MAX_DIRECT_TOC_SECTIONS = 50
 MAX_INLINE_SECTION_CHARACTERS = 3_000
+MAX_INLINE_FULL_DOCUMENT_CHARACTERS = 10_000
+FULL_DOCUMENT_SECTION_ID = "__mcp_full_document__"
 
 
 def tool_json_result(payload: dict[str, Any], *, is_error: bool = False) -> dict[str, Any]:
@@ -184,6 +186,7 @@ def get_document_content_response(
         "document_id": document_id,
         "content_sections": section_responses,
         "max_inline_section_characters": MAX_INLINE_SECTION_CHARACTERS,
+        "max_inline_full_document_characters": MAX_INLINE_FULL_DOCUMENT_CHARACTERS,
         "cache_hit": cache_hit,
     }
     if requested_section_ids is not None:
@@ -206,7 +209,12 @@ def _content_section_response(
     if return_content:
         content = response.get("content")
         if isinstance(content, str):
-            if _section_text_length(section, content) > MAX_INLINE_SECTION_CHARACTERS:
+            inline_limit = (
+                MAX_INLINE_FULL_DOCUMENT_CHARACTERS
+                if section.get("section_id") == FULL_DOCUMENT_SECTION_ID
+                else MAX_INLINE_SECTION_CHARACTERS
+            )
+            if _section_text_length(section, content) > inline_limit:
                 return _content_section_manifest_response(
                     section,
                     document_id=document_id,

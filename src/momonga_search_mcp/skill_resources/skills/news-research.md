@@ -10,7 +10,6 @@ Find relevant Momonga news statements and preserve `news_id`, `statement`, `obse
 
 ## Entry Rules
 
-- Before calling `list_news` or `search_news`, the client must have read `skill://index.json` or called `list_skills`.
 - News responses are not cached at the API level in the MVP, so repeat calls may return updated results.
 - News results are normalized statements with references, not article bodies and not document sections.
 - `macro_tags` is a closed enum of English labels. Allowed values are exactly: `Economic Indicators`, `Monetary Policy`, `Fiscal Policy`, `Regulatory Policy`, `Trade & Geopolitical Events`, `Financial Stability`, `External Shocks`. Do not invent or translate values (e.g. `金融政策` or `monetary policy` will be rejected).
@@ -32,8 +31,9 @@ Find relevant Momonga news statements and preserve `news_id`, `statement`, `obse
 
 3. Preserve references.
    - Return `news_id` and `references[]`.
-   - If a referenced document must be inspected, explicitly switch to `document-research`.
-   - Do not imply that `references[]` were opened unless document tools were actually used.
+   - When quoting or summarizing a news statement, explicitly keep the cited `news_id` with that statement.
+   - Treat `references[]` as external reference URLs.
+   - Do not imply that `references[]` were opened unless an external browsing or fetch workflow actually opened them.
 
 4. Switch to `evidence-answering` for the final response.
    - Once relevant news statements are gathered, follow the `evidence-answering` skill before composing the answer.
@@ -43,7 +43,7 @@ Find relevant Momonga news statements and preserve `news_id`, `statement`, `obse
 
 ## Avoid
 
-- Do not imply that `references[]` were opened unless document tools were used.
+- Do not imply that `references[]` were opened unless an external browsing or fetch workflow actually opened them.
 - Do not use news tools as a substitute for securities report content.
 - Do not fetch document content unless the user asks for evidence beyond the news statement.
 - Do not report a news `observed_at` value as an official corporate publication timestamp.

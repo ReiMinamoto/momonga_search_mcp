@@ -363,6 +363,7 @@ class ToolResponseTests(unittest.TestCase):
                     }
                 ],
                 "max_inline_section_characters": 3000,
+                "max_inline_full_document_characters": 10000,
                 "cache_hit": True,
             },
         )
@@ -467,6 +468,53 @@ class ToolResponseTests(unittest.TestCase):
             },
         )
         self.assertNotIn("content", response["content_sections"][0])
+
+    def test_content_response_inlines_full_document_up_to_full_document_threshold(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {
+                        "section_id": "__mcp_full_document__",
+                        "section_title": "Full document",
+                        "character_count": 9000,
+                        "content": "x" * 9000,
+                    },
+                    "momonga://documents/doc_123/sections/__mcp_full_document__",
+                )
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+        )
+
+        section = response["content_sections"][0]
+        self.assertEqual(section["content_mode"], "inline")
+        self.assertEqual(section["content"], "x" * 9000)
+
+    def test_content_response_returns_manifest_for_full_document_over_threshold(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {
+                        "section_id": "__mcp_full_document__",
+                        "section_title": "Full document",
+                        "character_count": 10001,
+                        "content": "x" * 10001,
+                    },
+                    "momonga://documents/doc_123/sections/__mcp_full_document__",
+                )
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+        )
+
+        section = response["content_sections"][0]
+        self.assertEqual(section["content_mode"], "manifest")
+        self.assertEqual(section["reason"], "section_exceeds_inline_threshold")
+        self.assertNotIn("content", section)
 
     def test_content_response_inlines_multiple_small_sections_without_total_budget(self) -> None:
         response = get_document_content_response(

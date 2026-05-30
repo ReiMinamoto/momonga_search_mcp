@@ -23,7 +23,6 @@ Produce concise grounded answers that separate retrieved facts from interpretati
    - Document sections: keep `section_title`, `character_count`, `content_mode`, `content_available_in_cache`, and `recommended_tools` when relevant.
    - News: keep `news_id`, `statement`, `observed_at`, `related_issuers`, `macro_tags`, and `references[]`.
    - Files: keep `document_id`, `file_path`, `resource_uri`, `media_type`, and page/original identifiers.
-   - Retrieval context: keep `cache_hit` and `cached` when they affect what was or was not retrieved. `cache_hit` (top-level) means the whole call was served from cache; `cached` (per section/file) means that specific item was served from cache. Do not conflate them when reporting.
 
 2. Answer only from retrieved evidence.
    - State when evidence is partial.
@@ -39,6 +38,8 @@ Produce concise grounded answers that separate retrieved facts from interpretati
 
 4. Keep citations useful.
    - Include exact identifiers in the answer or a compact evidence list.
+   - When citing document evidence, include `document_id` and `section_id` when available.
+   - When citing news evidence, include `news_id`.
    - Do not cite an `evidence_note` alone if `source_resource_uri`, `document_id`, or `section_id` is missing.
    - Do not paste long content when a summary plus identifiers is enough.
    - Use `published_at` as the document publication time when present, `timeline_at` for document listing/search timing, and `observed_at` for news timing. Do not call `timeline_at` or `observed_at` an official publication time unless the retrieved evidence says so.

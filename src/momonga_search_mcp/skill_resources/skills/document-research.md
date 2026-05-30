@@ -10,9 +10,8 @@ Find the minimum necessary document evidence and preserve identifiers needed for
 
 ## Entry Rules
 
-- Before calling `search_issuers`, `list_documents`, `search_documents`, or `get_document_content`, the client must have read `skill://index.json` or called `list_skills`.
 - Keep documents and news as separate result sets. If the user wants both, run document and news workflows separately and merge only in the final answer with clear labels.
-- Use the MCP tool response fields as the source of truth. Do not assume unavailable API fields are hidden somewhere else in the MCP response.
+- Use only fields returned by MCP tools. If a needed field is missing, call the appropriate follow-up tool instead of inferring it.
 - Steps 2 (`list_documents`) and 3 (`search_documents`) are independent discovery paths. Use either or both depending on the user's request; do not call both reflexively when one is enough.
 
 ## Workflow
@@ -33,14 +32,14 @@ Find the minimum necessary document evidence and preserve identifiers needed for
 3. Search within documents.
    - Use this step when the user is asking about a topic/keyword that should be located inside document bodies. Skip if Step 2 already produced enough candidates and the user did not ask for content lookup.
    - Use `search_documents` for topic discovery.
-   - Prefer short topic terms or specific keywords over long judgment-style questions.
+   - Prefer short topic terms or specific keywords. Use a longer natural-language query only when semantic concept matching is more useful than exact term discovery.
    - Use `lexical` for exact terms and `semantic` for concept lookup. If unsure, pass `match_type="semantic"` explicitly.
    - MCP runtime `top_k` limit is 25.
-   - Results are returned with `matches[]` ordered by `score` (highest first). Pick the top 1–3 matches whose `section_title` / `snippet` clearly align with the question; do not blindly hand off every `section_id` to `document-content-retrieval`.
+   - Results are returned with `matches[]` ordered by `score` (highest first). Pick the top 1-3 matches whose `section_title` / `snippet` clearly align with the question. Use up to 5 only when the user asks for comparison, coverage, or multiple distinct topics; do not blindly hand off every `section_id` to `document-content-retrieval`.
    - If `include_snippet=true`, treat snippets as discovery aids. Retrieve the section before using it as final evidence unless the user only asked for candidate locations.
 
 4. Check document availability and choose the next workflow.
-   - If the user only asked for document summaries, candidate documents, or candidate locations, switch directly to `evidence-answering` using the listing/search results. Do not retrieve content just because a candidate document is `ready`.
+   - If the user only asked for document summaries, candidate documents, or candidate section locations, answer from `list_documents` / `search_documents` results directly; do not retrieve document content or run compression just because a candidate document is `ready`.
    - If `content_status` is `ready` and the task requires document body evidence, switch to `document-content-retrieval` with the selected `document_id` and any known `matches[].section_id` / `heading_path` / `character_count`.
    - If `content_status` is `pending_release`, do not retrieve content; report the retry timing if provided.
    - If `content_status` is `external_only`, do not retrieve content through Momonga. If `reference_url` is present, read that external URL with the available browsing/fetch tool before answering; if no `reference_url` is present or it cannot be read, report that limitation.
@@ -51,7 +50,6 @@ Find the minimum necessary document evidence and preserve identifiers needed for
    - When document body evidence is needed, follow `document-content-retrieval` first.
    - Use `evidence-compression` before final answering when the answer requires synthesis, comparison, multiple sections, a large section, or any `content_mode=manifest` section inspected through search/window retrieval.
    - For a simple answer from one short inline section, skip compression and go directly from `document-content-retrieval` to `evidence-answering`.
-   - If the user only asked for document summaries, candidate documents, or candidate locations, `evidence-answering` can use the listing/search results directly without compression.
    - Cite the specific `document_id`, `section_id`, `heading_path`, and `reference_url` where applicable.
    - Separate facts retrieved from documents from your interpretation.
 

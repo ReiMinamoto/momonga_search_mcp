@@ -488,6 +488,7 @@ API response には document metadata も含まれますが、`get_document_toc`
     }
   ],
   "max_inline_section_characters": 3000,
+  "max_inline_full_document_characters": 10000,
   "cache_hit": false,
   "requested_section_ids": ["sec_1"]
 }
@@ -504,32 +505,21 @@ API response には document metadata も含まれますが、`get_document_toc`
       "section_id": "__mcp_full_document__",
       "section_title": "Full document",
       "character_count": 9000,
-      "content_mode": "manifest",
-      "reason": "section_exceeds_inline_threshold",
-      "content_available_in_cache": true,
-      "recommended_tools": ["search_section_contents", "get_section_window"],
-      "next_action": {
-        "tool": "search_section_contents",
-        "argument_hints": {
-          "document_id": "doc_123",
-          "section_id": "__mcp_full_document__",
-          "query": "Search terms for the needed evidence in this section."
-        },
-        "fallback_tool": "get_section_window"
-      },
+      "content": "Full document...",
+      "content_mode": "inline",
       "resource_uri": "momonga://documents/doc_123/sections/__mcp_full_document__",
-      "source_resource_uri": "momonga://documents/doc_123/sections/__mcp_full_document__",
       "cached": false
     }
   ],
   "max_inline_section_characters": 3000,
+  "max_inline_full_document_characters": 10000,
   "cache_hit": false
 }
 ```
 
 `return_content=false` の場合、`content_sections[].content` は返しません。取得した本文は返却有無に関係なく cache に保存します。
-MCP response に本文を inline で含めるのは、`character_count` が `max_inline_section_characters` 以下の section だけです。大きい section は `content_mode=manifest`、`content_available_in_cache=true`、`recommended_tools=["search_section_contents","get_section_window"]` を返し、本文は返しません。
-`get_document_content` には別途の総文字数 cap はありません。1回の呼び出しで返りうる inline 本文量は、`max_inline_section_characters` と `section_ids` 上限により bounded です。
+MCP response に本文を inline で含めるのは、通常 section では `character_count` が `max_inline_section_characters` 以下の場合、full document synthetic section では `character_count` が `max_inline_full_document_characters` 以下の場合だけです。大きい section は `content_mode=manifest`、`content_available_in_cache=true`、`recommended_tools=["search_section_contents","get_section_window"]` を返し、本文は返しません。
+通常 section の1回の呼び出しで返りうる inline 本文量は、`max_inline_section_characters` と `section_ids` 上限により bounded です。`allow_full_document=true` の場合は synthetic section 1件だけを返し、`max_inline_full_document_characters` により bounded です。
 
 ### 残す field
 
@@ -549,6 +539,7 @@ MCP response に本文を inline で含めるのは、`character_count` が `max
 | `content_sections[].source_resource_uri` | 根拠所在として使う resource URI。 |
 | `content_sections[].cached` | その section が今回 cache 由来かどうか。 |
 | `max_inline_section_characters` | section 本文を inline で返すか manifest にするかの閾値。 |
+| `max_inline_full_document_characters` | full document synthetic section を inline で返すか manifest にするかの閾値。 |
 | `cache_hit` | tool call 全体が API call を skip したかどうか。 |
 | `requested_section_ids` | 今回要求した section ID。`section_ids` 指定時だけ返ります。 |
 | `missing_section_ids` | 要求した section のうち、API response / cache に存在しなかった ID。存在する場合だけ返ります。 |

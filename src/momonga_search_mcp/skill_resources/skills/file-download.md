@@ -10,10 +10,8 @@ Download only files the API reports as available, with explicit user/tool permis
 
 ## Entry Rules
 
-- Reading `skill://index.json` or calling `list_skills` is required whenever this download workflow is followed alongside any document or news research tools in the same session. The download tools themselves do not enforce the guard, but skipping it will fail the first research call. For pure-download tasks it is still recommended for consistency.
 - Only use this skill when `document_id` is known. If the user gives only an issuer, company name, topic, date range, or document title, switch to `document-research` first to identify the document.
 - Download tools retrieve exactly one target per call: one page image or one original file.
-- Cache hits return local file metadata without calling the API again.
 - The explicit permission flag is a tool argument: `allow_file_download=true`. Without that exact boolean value, download tools must not be called.
 - `allow_file_download` is a tool-level safety flag, not a chat-level consent prompt. If the user's request already implies "download" or "save the file", set the flag without asking them again. Ask only when intent is ambiguous (e.g. the user asked about availability, not retrieval).
 
@@ -37,7 +35,7 @@ Download only files the API reports as available, with explicit user/tool permis
    - If many pages are requested, list availability and ask for a narrower range unless the user has already specified exact pages.
 
 4. Return download metadata.
-   - Preserve `file_path`, `resource_uri`, `media_type`, `document_id`, `page_number` or `original_id`, and `cached`.
+   - Preserve `file_path`, `resource_uri`, `media_type`, `document_id`, and `page_number` or `original_id`.
    - For originals, preserve `filename` when returned.
    - Do not expect the MCP response to include file bytes or full manifest metadata.
 
