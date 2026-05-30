@@ -8,10 +8,12 @@ from momonga_search_mcp.config import (
     API_TIMEOUT_SECONDS,
     BYTES_PER_GB,
     DEFAULT_CACHE_MAX_BYTES,
+    SERVER_VERSION,
     Config,
     ConfigError,
     default_cache_dir,
     resolve_cache_dir,
+    resolved_server_version,
 )
 
 
@@ -87,6 +89,10 @@ class ConfigTests(unittest.TestCase):
             cache_dir = resolve_cache_dir({"MOMONGA_SEARCH_MCP_CACHE_DIR": ""})
 
         self.assertEqual(cache_dir, Path("/tmp/xdg-cache/momonga-search-mcp"))
+
+    def test_resolved_server_version_falls_back_when_metadata_version_is_missing(self) -> None:
+        with patch("momonga_search_mcp.config.version", return_value=None):
+            self.assertEqual(resolved_server_version(), SERVER_VERSION)
 
     def test_ignores_old_cache_dir_env_when_new_cache_dir_is_set(self) -> None:
         cache_dir = resolve_cache_dir(

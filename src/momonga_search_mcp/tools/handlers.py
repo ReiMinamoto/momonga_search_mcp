@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 import unicodedata
 from urllib.parse import quote
@@ -11,7 +10,7 @@ from uuid import uuid4
 
 from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
 from momonga_search_mcp.cache import CacheManager
-from momonga_search_mcp.config import MCP_PROTOCOL_VERSION, SERVER_NAME, SERVER_VERSION, Config
+from momonga_search_mcp.config import MCP_PROTOCOL_VERSION, SERVER_NAME, Config, resolved_server_version
 from momonga_search_mcp.skills import get_skill, list_skills
 from momonga_search_mcp.tools.definitions import (
     DOCUMENT_LOOKUP_TOOLS,
@@ -327,11 +326,6 @@ def _call_list_cached_resources(
 
 def _call_diagnose_setup(config: Config) -> dict[str, Any]:
     try:
-        server_version = version(SERVER_NAME)
-    except PackageNotFoundError:
-        server_version = SERVER_VERSION
-
-    try:
         config.cache_dir.mkdir(parents=True, exist_ok=True)
         probe = config.cache_dir / f".diagnose-{uuid4().hex}.tmp"
         probe.write_text("", encoding="utf-8")
@@ -347,7 +341,7 @@ def _call_diagnose_setup(config: Config) -> dict[str, Any]:
         "cache_dir": str(config.cache_dir),
         "cache_writable": cache_writable,
         "server_name": SERVER_NAME,
-        "server_version": server_version,
+        "server_version": resolved_server_version(),
         "protocol_version": MCP_PROTOCOL_VERSION,
     }
 

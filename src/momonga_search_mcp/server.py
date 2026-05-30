@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from importlib.metadata import PackageNotFoundError, version
 import json
 import logging
 import sys
@@ -12,7 +11,7 @@ from dotenv import load_dotenv
 
 from momonga_search_mcp.api import MomongaApiClient
 from momonga_search_mcp.cache import CacheManager
-from momonga_search_mcp.config import MCP_PROTOCOL_VERSION, SERVER_NAME, SERVER_VERSION, Config, ConfigError
+from momonga_search_mcp.config import MCP_PROTOCOL_VERSION, SERVER_NAME, Config, ConfigError, resolved_server_version
 from momonga_search_mcp.prompts import get_prompt, prompt_definitions
 from momonga_search_mcp.resources import is_momonga_resource_uri, read_momonga_resource
 from momonga_search_mcp.skills import read_skill_resource, skill_resources
@@ -130,16 +129,11 @@ class StdioMCPServer:
         return _error_response(request_id, -32601, f"Method not found: {method}")
 
     def _initialize_result(self) -> dict[str, Any]:
-        try:
-            server_version = version(SERVER_NAME)
-        except PackageNotFoundError:
-            server_version = SERVER_VERSION
-
         return {
             "protocolVersion": MCP_PROTOCOL_VERSION,
             "serverInfo": {
                 "name": SERVER_NAME,
-                "version": server_version,
+                "version": resolved_server_version(),
             },
             "capabilities": {
                 "tools": {"listChanged": False},

@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
+from importlib.metadata import PackageNotFoundError, version
 import os
 from pathlib import Path
+import warnings
 
 from platformdirs import user_cache_dir
 
@@ -33,6 +35,16 @@ class ConfigError(RuntimeError):
 
 def default_cache_dir() -> Path:
     return Path(user_cache_dir(APP_CACHE_DIR_NAME, appauthor=False))
+
+
+def resolved_server_version() -> str:
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            package_version = version(SERVER_NAME)
+    except PackageNotFoundError:
+        return SERVER_VERSION
+    return package_version or SERVER_VERSION
 
 
 @dataclass(frozen=True)

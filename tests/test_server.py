@@ -46,6 +46,7 @@ class ServerTests(unittest.TestCase):
         assert response is not None
         self.assertEqual(response["result"]["protocolVersion"], "2025-11-25")
         self.assertEqual(response["result"]["serverInfo"]["name"], "momonga-search-mcp")
+        self.assertIsInstance(response["result"]["serverInfo"]["version"], str)
         self.assertIn("tools", response["result"]["capabilities"])
 
     def test_ping(self) -> None:
