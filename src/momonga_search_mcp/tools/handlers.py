@@ -4,17 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
+import unicodedata
 from urllib.parse import quote
+from uuid import uuid4
 
-from momonga_search_mcp.api import JsonApiResponse, MomongaApiClient, MomongaApiError, api_error_response
-from momonga_search_mcp.cache import CachedResource, CacheManager
-from momonga_search_mcp.config import Config
+from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response, probe_tls_connectivity
+from momonga_search_mcp.cache import CacheManager
+from momonga_search_mcp.config import MCP_PROTOCOL_VERSION, SERVER_NAME, Config, resolved_server_version
 from momonga_search_mcp.skills import get_skill, list_skills
 from momonga_search_mcp.tools.definitions import (
-    CREDIT_TOOLS,
+    DOCUMENT_LOOKUP_TOOLS,
+    RETRIEVAL_TOOLS,
     SKILL_HELPER_TOOLS,
     TOOL_ARGUMENT_ALTERNATIVES,
-    ZERO_CREDIT_DOCUMENT_TOOLS,
 )
 from momonga_search_mcp.tools.response import (
     get_document_content_response,
@@ -23,25 +25,35 @@ from momonga_search_mcp.tools.response import (
     tool_json_result,
 )
 
-DEFAULT_CONFIG = Config(api_key="")
-TOOL_SCHEMAS = {**ZERO_CREDIT_DOCUMENT_TOOLS, **CREDIT_TOOLS, **SKILL_HELPER_TOOLS}
-CREDIT_COSTS = {
-    "list_news": 1,
-    "get_document_content": 8,
-    "search_documents": 1,
-    "search_news": 1,
-    "get_document_page_image": 1,
-    "get_document_original": 8,
-}
-CONTENT_CREDIT_COSTS = {2, 4, 8}
+DEFAULT_CONFIG = Config(api_key="ms_test_xxx")
+TOOL_SCHEMAS = {**DOCUMENT_LOOKUP_TOOLS, **RETRIEVAL_TOOLS, **SKILL_HELPER_TOOLS}
 FULL_DOCUMENT_SECTION_ID = "__mcp_full_document__"
+DEFAULT_SECTION_SEARCH_CONTEXT_CHARS = 150
+SECTION_SEARCH_MAX_MATCHES = 15
+DEFAULT_SECTION_WINDOW_CHARACTERS = 1500
 SKILL_INDEX_GUARDED_TOOLS = {
     "search_issuers",
     "list_documents",
     "list_news",
     "get_document_content",
+    "search_section_contents",
+    "get_section_window",
     "search_documents",
     "search_news",
+}
+API_KEY_REQUIRED_TOOLS = {
+    "search_issuers",
+    "list_documents",
+    "get_document_metadata",
+    "get_document_toc",
+    "list_document_page_images",
+    "list_document_originals",
+    "list_news",
+    "get_document_content",
+    "search_documents",
+    "search_news",
+    "get_document_page_image",
+    "get_document_original",
 }
 
 
@@ -59,7 +71,6 @@ def call_tool(
     *,
     cache_manager_getter: Callable[[], CacheManager] | None = None,
     config: Config = DEFAULT_CONFIG,
-    session_id: str = "default",
     skill_index_seen: bool = True,
 ) -> dict[str, Any]:
     if not isinstance(params, dict):
@@ -96,8 +107,12 @@ def call_tool(
             return tool_json_result({"ok": True, "skills": list_skills()})
         if name == "get_skill":
             return tool_json_result({"ok": True, **get_skill(_required_string(arguments, "id"))})
+        if name == "diagnose_setup":
+            return tool_json_result(_call_diagnose_setup(config))
         if name == "list_cached_resources":
             return tool_json_result(_call_list_cached_resources(arguments, cache_manager_getter))
+        if name in API_KEY_REQUIRED_TOOLS and not config.api_key.strip():
+            raise ToolSetupError("MOMONGA_SEARCH_API_KEY is required for Momonga Search API tools")
         if name == "search_issuers":
             payload = api_client.get("/issuers/search", _require_arguments(arguments, ("q",), optional=("limit",)))
         elif name == "list_documents":
@@ -119,7 +134,7 @@ def call_tool(
         elif name == "get_document_metadata":
             payload = api_client.get(f"/documents/{_quoted_document_id(arguments)}")
         elif name == "get_document_toc":
-            return _call_get_document_toc(api_client, arguments, cache_manager_getter, config=config)
+            return _call_get_document_toc(api_client, arguments, cache_manager_getter)
         elif name == "list_document_page_images":
             payload = api_client.get(f"/documents/{_quoted_document_id(arguments)}/page-images")
         elif name == "list_document_originals":
@@ -129,19 +144,15 @@ def call_tool(
                 arguments,
                 ("security_codes", "macro_tags", "timeline_since", "timeline_until", "limit", "cursor"),
             )
-            payload = _call_credit_api(
-                api_client.get,
-                "/news",
-                params,
-                tool_name=name,
-                cache_manager_getter=cache_manager_getter,
-                session_id=session_id,
-            )
+            payload = api_client.get("/news", params)
         elif name == "get_document_content":
-            return _call_get_document_content(api_client, arguments, cache_manager_getter, config=config, session_id=session_id)
+            return _call_get_document_content(api_client, arguments, cache_manager_getter, config=config)
+        elif name == "search_section_contents":
+            return tool_json_result(_call_search_section_contents(arguments, cache_manager_getter))
+        elif name == "get_section_window":
+            return tool_json_result(_call_get_section_window(arguments, cache_manager_getter))
         elif name == "search_documents":
-            payload = _call_credit_api(
-                api_client.post,
+            payload = api_client.post(
                 "/search/documents",
                 _require_arguments(
                     arguments,
@@ -157,29 +168,20 @@ def call_tool(
                         "include_snippet",
                     ),
                 ),
-                tool_name=name,
-                cache_manager_getter=cache_manager_getter,
-                session_id=session_id,
             )
         elif name == "search_news":
-            payload = _call_credit_api(
-                api_client.post,
+            payload = api_client.post(
                 "/search/news",
                 _require_arguments(
                     arguments,
                     ("query",),
                     optional=("security_codes", "macro_tags", "timeline_since", "timeline_until", "match_type", "top_k"),
                 ),
-                tool_name=name,
-                cache_manager_getter=cache_manager_getter,
-                session_id=session_id,
             )
         elif name == "get_document_page_image":
-            return _call_get_document_page_image(
-                api_client, arguments, cache_manager_getter, config=config, session_id=session_id
-            )
+            return _call_get_document_page_image(api_client, arguments, cache_manager_getter)
         elif name == "get_document_original":
-            return _call_get_document_original(api_client, arguments, cache_manager_getter, config=config, session_id=session_id)
+            return _call_get_document_original(api_client, arguments, cache_manager_getter)
         else:
             raise ValueError(f"Unhandled tool: {name}")
     except ToolSetupError as exc:
@@ -198,6 +200,112 @@ def call_tool(
 
     response = success_response(name, payload)
     return tool_json_result(response)
+
+
+def _call_search_section_contents(
+    arguments: dict[str, Any],
+    cache_manager_getter: Callable[[], CacheManager] | None,
+) -> dict[str, Any]:
+    document_id = _required_string(arguments, "document_id")
+    section_id = _required_string(arguments, "section_id")
+    query = _required_string(arguments, "query").strip()
+    match_type = arguments.get("match_type", "lexical")
+    if match_type != "lexical":
+        raise ValueError("match_type must be lexical")
+    context_chars = arguments.get("context_chars", DEFAULT_SECTION_SEARCH_CONTEXT_CHARS)
+    max_matches = SECTION_SEARCH_MAX_MATCHES
+    if cache_manager_getter is None:
+        raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for search_section_contents")
+
+    cache_manager = cache_manager_getter()
+    resource = cache_manager.get_document_section(document_id, section_id)
+    if resource is None:
+        raise ValueError(
+            "section content is not cached; call get_document_content with this document_id and section_id before searching"
+        )
+    section = cache_manager.read_json(resource)
+    content = section.get("content")
+    if not isinstance(content, str):
+        raise ValueError("cached section does not contain searchable text content")
+
+    raw_matches = _section_lexical_matches(content, query, context_chars=context_chars, max_matches=max_matches + 1)
+    matches_truncated = len(raw_matches) > max_matches
+    matches = raw_matches[:max_matches]
+    response: dict[str, Any] = {
+        "ok": True,
+        "document_id": document_id,
+        "section_id": section_id,
+        **_section_metadata(section),
+        "match_type": "lexical",
+        "query": query,
+        "context_chars": context_chars,
+        "max_matches": max_matches,
+        "matches": matches,
+        "matches_truncated": matches_truncated,
+        "source_resource_uri": resource.resource_uri,
+        "cache_hit": True,
+    }
+    if matches_truncated:
+        response["next_action"] = {
+            "tool": "search_section_contents",
+            "reason": "too_many_matches",
+            "message": "Refine the query with more specific terms before reading windows.",
+            "argument_hints": {
+                "document_id": document_id,
+                "section_id": section_id,
+                "query": "More specific search terms for the needed evidence.",
+                "match_type": "lexical",
+                "context_chars": context_chars,
+                "max_matches": max_matches,
+            },
+        }
+    return response
+
+
+def _call_get_section_window(
+    arguments: dict[str, Any],
+    cache_manager_getter: Callable[[], CacheManager] | None,
+) -> dict[str, Any]:
+    document_id = _required_string(arguments, "document_id")
+    section_id = _required_string(arguments, "section_id")
+    offset = arguments["offset"]
+    max_characters = arguments.get("max_characters", DEFAULT_SECTION_WINDOW_CHARACTERS)
+    if cache_manager_getter is None:
+        raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_section_window")
+
+    cache_manager = cache_manager_getter()
+    resource = cache_manager.get_document_section(document_id, section_id)
+    if resource is None:
+        raise ValueError(
+            "section content is not cached; call get_document_content with this document_id and section_id before reading a window"
+        )
+    section = cache_manager.read_json(resource)
+    content = section.get("content")
+    if not isinstance(content, str):
+        raise ValueError("cached section does not contain window-readable text content")
+
+    bounded_offset = min(offset, len(content))
+    half_window = max_characters // 2
+    start_offset = max(0, bounded_offset - half_window)
+    end_offset = min(len(content), start_offset + max_characters)
+    if end_offset - start_offset < max_characters:
+        start_offset = max(0, end_offset - max_characters)
+    window = content[start_offset:end_offset]
+    return {
+        "ok": True,
+        "document_id": document_id,
+        "section_id": section_id,
+        **_section_metadata(section),
+        "offset": offset,
+        "start_offset": start_offset,
+        "end_offset": end_offset,
+        "actual_characters": len(window),
+        "max_characters": max_characters,
+        "content": window,
+        "truncated": start_offset > 0 or end_offset < len(content),
+        "source_resource_uri": resource.resource_uri,
+        "cache_hit": True,
+    }
 
 
 def _validation_error(message: str) -> dict[str, Any]:
@@ -234,30 +342,68 @@ def _call_list_cached_resources(
     return {"ok": True, "resources": resources}
 
 
+def _call_diagnose_setup(config: Config) -> dict[str, Any]:
+    try:
+        config.cache_dir.mkdir(parents=True, exist_ok=True)
+        probe = config.cache_dir / f".diagnose-{uuid4().hex}.tmp"
+        probe.write_text("", encoding="utf-8")
+        probe.unlink()
+        cache_writable = True
+    except OSError:
+        cache_writable = False
+
+    return {
+        "ok": True,
+        "api_key_configured": bool(config.api_key.strip()),
+        "base_url": config.base_url,
+        "cache_dir": str(config.cache_dir),
+        "cache_writable": cache_writable,
+        "api_tls_probe": probe_tls_connectivity(config.base_url),
+        "server_name": SERVER_NAME,
+        "server_version": resolved_server_version(),
+        "protocol_version": MCP_PROTOCOL_VERSION,
+    }
+
+
 def _call_get_document_toc(
     api_client: MomongaApiClient,
     arguments: dict[str, Any],
     cache_manager_getter: Callable[[], CacheManager] | None,
-    *,
-    config: Config,
 ) -> dict[str, Any]:
     document_id = _required_string(arguments, "document_id")
+    path_prefix = arguments.get("path_prefix")
+    max_depth = arguments.get("max_depth", 2)
+    include_sections = arguments.get("include_sections", False)
     if cache_manager_getter is None:
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_toc")
 
     cache_manager = cache_manager_getter()
-    cached_toc = cache_manager.get_document_toc(document_id) if config.cache_enabled else None
+    cached_toc = cache_manager.get_document_toc(document_id)
     if cached_toc is not None:
         payload = cache_manager.read_json(cached_toc)
-        return tool_json_result(get_document_toc_response(payload, cached_toc, cache_hit=True))
+        return tool_json_result(
+            get_document_toc_response(
+                payload,
+                cached_toc,
+                cache_hit=True,
+                path_prefix=path_prefix if isinstance(path_prefix, list) else None,
+                max_depth=max_depth if type(max_depth) is int else 2,
+                include_sections=include_sections if type(include_sections) is bool else False,
+            )
+        )
 
     payload = api_client.get(f"/documents/{_quote_path_component(document_id)}/toc")
-    resource = (
-        cache_manager.store_document_toc(document_id, payload)
-        if config.cache_enabled
-        else CachedResource(resource_uri=cache_manager.document_toc_uri(document_id), path=cache_manager.cache_dir)
+    resource = cache_manager.store_document_toc(document_id, payload)
+    return tool_json_result(
+        get_document_toc_response(
+            payload,
+            resource,
+            cache_hit=False,
+            path_prefix=path_prefix if isinstance(path_prefix, list) else None,
+            max_depth=max_depth if type(max_depth) is int else 2,
+            include_sections=include_sections if type(include_sections) is bool else False,
+        )
     )
-    return tool_json_result(get_document_toc_response(payload, resource, cache_hit=False))
 
 
 def _call_get_document_content(
@@ -266,24 +412,23 @@ def _call_get_document_content(
     cache_manager_getter: Callable[[], CacheManager] | None,
     *,
     config: Config,
-    session_id: str,
 ) -> dict[str, Any]:
     document_id = _required_string(arguments, "document_id")
     section_ids = arguments.get("section_ids", [])
     if not isinstance(section_ids, list) or not all(isinstance(item, str) and item.strip() for item in section_ids):
         raise ValueError("section_ids must be an array of strings")
+    allow_full_document = arguments.get("allow_full_document", False)
+    if not section_ids and allow_full_document is not True:
+        raise ValueError("allow_full_document=true is required when section_ids is omitted")
     return_content = arguments.get("return_content", True)
     if not isinstance(return_content, bool):
         raise ValueError("return_content must be a boolean")
-    offset = arguments.get("offset", 0)
-    if offset > 0 and len(section_ids) > 1:
-        raise ValueError("offset can only be used with exactly one section_id")
 
     if cache_manager_getter is None:
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_content")
     cache_manager = cache_manager_getter()
     requested_section_ids = section_ids or [FULL_DOCUMENT_SECTION_ID]
-    if config.cache_enabled and requested_section_ids:
+    if requested_section_ids:
         cached_resources = [cache_manager.get_document_section(document_id, section_id) for section_id in requested_section_ids]
         if all(resource is not None for resource in cached_resources):
             resources = [resource for resource in cached_resources if resource is not None]
@@ -294,24 +439,15 @@ def _call_get_document_content(
                 cache_hit=True,
                 cached_sections=True,
                 return_content=return_content,
-                max_chars=config.max_characters_per_content_call,
-                offset=offset,
+                requested_section_ids=section_ids or None,
             )
             return tool_json_result(response)
 
     params = {"sections": section_ids} if section_ids else None
     endpoint = f"/documents/{_quote_path_component(document_id)}/content"
-    api_response = _call_credit_json_api(
-        api_client.get_with_usage,
-        endpoint,
-        params,
-        tool_name="get_document_content",
-        cache_manager_getter=cache_manager_getter,
-        session_id=session_id,
-        valid_actual_credits=CONTENT_CREDIT_COSTS,
-    )
-    payload = api_response.payload
+    payload = api_client.get(endpoint, params)
     section_resources = []
+    missing_section_ids = []
     if section_ids and isinstance(payload.get("content_sections"), list):
         content_sections = payload["content_sections"]
         for section in content_sections:
@@ -319,12 +455,19 @@ def _call_get_document_content(
                 continue
 
             section_id = _required_string(section, "section_id")
-            resource_uri = (
-                cache_manager.store_document_section(document_id, section_id, section).resource_uri
-                if config.cache_enabled
-                else cache_manager.document_section_uri(document_id, section_id)
-            )
+            resource_uri = cache_manager.store_document_section(document_id, section_id, section).resource_uri
             section_resources.append((section, resource_uri))
+        returned_section_ids = {
+            section.get("section_id")
+            for section, _resource_uri in section_resources
+            if isinstance(section.get("section_id"), str)
+        }
+        missing_section_ids = [section_id for section_id in section_ids if section_id not in returned_section_ids]
+        if not section_resources:
+            raise ValueError(f"requested section_ids were not returned: {', '.join(missing_section_ids or section_ids)}")
+    elif section_ids:
+        missing_section_ids = list(section_ids)
+        raise ValueError(f"requested section_ids were not returned: {', '.join(missing_section_ids)}")
     elif not section_ids:
         content = payload.get("content")
         if isinstance(content, str):
@@ -334,11 +477,7 @@ def _call_get_document_content(
                 "character_count": payload.get("character_count", len(content)),
                 "content": content,
             }
-            resource_uri = (
-                cache_manager.store_document_section(document_id, FULL_DOCUMENT_SECTION_ID, full_section).resource_uri
-                if config.cache_enabled
-                else cache_manager.document_section_uri(document_id, FULL_DOCUMENT_SECTION_ID)
-            )
+            resource_uri = cache_manager.store_document_section(document_id, FULL_DOCUMENT_SECTION_ID, full_section).resource_uri
             section_resources.append((full_section, resource_uri))
 
     response = get_document_content_response(
@@ -347,8 +486,8 @@ def _call_get_document_content(
         cache_hit=False,
         cached_sections=False,
         return_content=return_content,
-        max_chars=config.max_characters_per_content_call,
-        offset=offset,
+        requested_section_ids=section_ids or None,
+        missing_section_ids=missing_section_ids,
     )
     return tool_json_result(response)
 
@@ -357,9 +496,6 @@ def _call_get_document_page_image(
     api_client: MomongaApiClient,
     arguments: dict[str, Any],
     cache_manager_getter: Callable[[], CacheManager] | None,
-    *,
-    config: Config,
-    session_id: str,
 ) -> dict[str, Any]:
     _require_download_flags(arguments)
     document_id = _required_string(arguments, "document_id")
@@ -370,7 +506,7 @@ def _call_get_document_page_image(
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_page_image")
 
     cache_manager = cache_manager_getter()
-    cached = cache_manager.get_page_image(document_id, page_number) if config.cache_enabled else None
+    cached = cache_manager.get_page_image(document_id, page_number)
     if cached is not None:
         response = _download_response(
             "get_document_page_image",
@@ -381,22 +517,10 @@ def _call_get_document_page_image(
             page_number=page_number,
             media_type="image/jpeg",
         )
-        cache_manager.record_api_call(
-            tool_name="get_document_page_image",
-            endpoint=f"/documents/{_quote_path_component(document_id)}/pages/{page_number}/image",
-            cache_hit=True,
-            credits_used=0,
-        )
         return tool_json_result(response)
 
     endpoint = f"/documents/{_quote_path_component(document_id)}/pages/{page_number}/image"
-    binary_response = _call_credit_binary_api(
-        api_client.get_binary,
-        endpoint,
-        tool_name="get_document_page_image",
-        cache_manager_getter=cache_manager_getter,
-        session_id=session_id,
-    )
+    binary_response = api_client.get_binary(endpoint)
     image_bytes = binary_response.content
     resource = cache_manager.store_page_image(
         document_id,
@@ -420,9 +544,6 @@ def _call_get_document_original(
     api_client: MomongaApiClient,
     arguments: dict[str, Any],
     cache_manager_getter: Callable[[], CacheManager] | None,
-    *,
-    config: Config,
-    session_id: str,
 ) -> dict[str, Any]:
     _require_download_flags(arguments)
     document_id = _required_string(arguments, "document_id")
@@ -431,11 +552,12 @@ def _call_get_document_original(
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_original")
 
     cache_manager = cache_manager_getter()
-    cached = cache_manager.get_original_file(document_id, original_id) if config.cache_enabled else None
+    cached = cache_manager.get_original_file(document_id, original_id)
     if cached is not None:
-        metadata = cache_manager.read_json(
-            CachedResource(resource_uri=cached.resource_uri, path=cached.path.with_name("metadata.json"))
-        )
+        metadata_resource = cache_manager.get_json_resource(cached.resource_uri)
+        if metadata_resource is None:
+            raise ToolSetupError("cached original metadata is unavailable")
+        metadata = cache_manager.read_json(metadata_resource[0])
         response = _download_response(
             "get_document_original",
             document_id=document_id,
@@ -446,22 +568,10 @@ def _call_get_document_original(
             media_type=str(metadata.get("media_type") or "application/octet-stream"),
             filename=str(metadata.get("filename") or cached.path.name),
         )
-        cache_manager.record_api_call(
-            tool_name="get_document_original",
-            endpoint=f"/documents/{_quote_path_component(document_id)}/originals/{_quote_path_component(original_id)}",
-            cache_hit=True,
-            credits_used=0,
-        )
         return tool_json_result(response)
 
     endpoint = f"/documents/{_quote_path_component(document_id)}/originals/{_quote_path_component(original_id)}"
-    binary_response = _call_credit_binary_api(
-        api_client.get_binary,
-        endpoint,
-        tool_name="get_document_original",
-        cache_manager_getter=cache_manager_getter,
-        session_id=session_id,
-    )
+    binary_response = api_client.get_binary(endpoint)
     file_bytes = binary_response.content
     filename = binary_response.filename
     media_type = binary_response.media_type
@@ -496,72 +606,6 @@ def _call_get_document_original(
     return tool_json_result(response)
 
 
-def _call_credit_api(
-    api_call: Callable[..., dict[str, Any]],
-    endpoint: str,
-    payload: dict[str, Any],
-    *,
-    tool_name: str,
-    cache_manager_getter: Callable[[], CacheManager] | None,
-    session_id: str,
-) -> dict[str, Any]:
-    credits = CREDIT_COSTS[tool_name]
-    if cache_manager_getter is None:
-        raise ToolSetupError("cache manager is unavailable; credit accounting cannot proceed without MCP cache_dir")
-
-    cache_manager = cache_manager_getter()
-
-    response = api_call(endpoint, payload)
-    cache_manager.record_session_credits(session_id, credits)
-    cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=credits)
-    return response
-
-
-def _call_credit_json_api(
-    api_call: Callable[..., JsonApiResponse],
-    endpoint: str,
-    payload: dict[str, Any],
-    *,
-    tool_name: str,
-    cache_manager_getter: Callable[[], CacheManager] | None,
-    session_id: str,
-    valid_actual_credits: set[int] | None = None,
-) -> JsonApiResponse:
-    max_credits = CREDIT_COSTS[tool_name]
-    if cache_manager_getter is None:
-        raise ToolSetupError("cache manager is unavailable; credit accounting cannot proceed without MCP cache_dir")
-
-    cache_manager = cache_manager_getter()
-
-    response = api_call(endpoint, payload)
-    actual_credits = response.inferred_compute_credits
-    if actual_credits is None or (valid_actual_credits is not None and actual_credits not in valid_actual_credits):
-        actual_credits = max_credits
-    cache_manager.record_session_credits(session_id, actual_credits)
-    cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=actual_credits)
-    return response
-
-
-def _call_credit_binary_api(
-    api_call: Callable[..., Any],
-    endpoint: str,
-    *,
-    tool_name: str,
-    cache_manager_getter: Callable[[], CacheManager] | None,
-    session_id: str,
-) -> Any:
-    credits = CREDIT_COSTS[tool_name]
-    if cache_manager_getter is None:
-        raise ToolSetupError("cache manager is unavailable; credit accounting cannot proceed without MCP cache_dir")
-
-    cache_manager = cache_manager_getter()
-
-    response = api_call(endpoint)
-    cache_manager.record_session_credits(session_id, credits)
-    cache_manager.record_api_call(tool_name=tool_name, endpoint=endpoint, cache_hit=False, credits_used=credits)
-    return response
-
-
 def _require_download_flags(arguments: dict[str, Any]) -> None:
     if arguments.get("allow_file_download") is not True:
         raise ValueError("allow_file_download must be true for file download tools")
@@ -593,6 +637,63 @@ def _download_response(
         response["original_id"] = original_id
         response["filename"] = filename
     return response
+
+
+def _section_metadata(section: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    section_title = section.get("section_title")
+    if isinstance(section_title, str):
+        metadata["section_title"] = section_title
+    return metadata
+
+
+def _section_lexical_matches(
+    content: str,
+    query: str,
+    *,
+    context_chars: int,
+    max_matches: int,
+) -> list[dict[str, Any]]:
+    matches = []
+    normalized_content, offset_map = _normalize_search_text_with_offsets(content)
+    normalized_query = _normalize_search_text(query)
+    if not normalized_query:
+        return matches
+    search_from = 0
+    while len(matches) < max_matches:
+        normalized_offset = normalized_content.find(normalized_query, search_from)
+        if normalized_offset == -1:
+            break
+        normalized_match_end = normalized_offset + len(normalized_query)
+        offset = offset_map[normalized_offset]
+        match_end = offset_map[normalized_match_end - 1] + 1
+        excerpt_start = max(0, offset - context_chars)
+        excerpt_end = min(len(content), match_end + context_chars)
+        matches.append(
+            {
+                "offset": offset,
+                "excerpt": content[excerpt_start:excerpt_end],
+                "matched_text": content[offset:match_end],
+            }
+        )
+        search_from = normalized_match_end
+    return matches
+
+
+def _normalize_search_text(value: str) -> str:
+    return unicodedata.normalize("NFKC", value).casefold()
+
+
+def _normalize_search_text_with_offsets(value: str) -> tuple[str, list[int]]:
+    normalized_parts = []
+    offset_map = []
+    for original_offset, character in enumerate(value):
+        normalized = _normalize_search_text(character)
+        if not normalized:
+            continue
+        normalized_parts.append(normalized)
+        offset_map.extend([original_offset] * len(normalized))
+    return "".join(normalized_parts), offset_map
 
 
 def _original_manifest_entry(

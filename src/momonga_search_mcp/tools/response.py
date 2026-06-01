@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import json
 from typing import Any
 
 from momonga_search_mcp.cache import CachedResource
@@ -33,6 +34,10 @@ SEARCH_NEWS_FIELDS = LIST_NEWS_FIELDS
 
 CONTENT_SECTION_FIELDS = ("section_id", "section_title", "character_count", "content")
 TOC_FIELDS = ("section_id", "section_title", "heading_path", "character_count", "page_number")
+MAX_DIRECT_TOC_SECTIONS = 50
+MAX_INLINE_SECTION_CHARACTERS = 3_000
+MAX_INLINE_FULL_DOCUMENT_CHARACTERS = 10_000
+FULL_DOCUMENT_SECTION_ID = "__mcp_full_document__"
 
 
 def tool_json_result(payload: dict[str, Any], *, is_error: bool = False) -> dict[str, Any]:
@@ -40,48 +45,13 @@ def tool_json_result(payload: dict[str, Any], *, is_error: bool = False) -> dict
         "content": [
             {
                 "type": "text",
-                "text": _summary_text(payload, is_error=is_error),
+                "text": json.dumps(payload, ensure_ascii=False),
             }
         ],
-        "structuredContent": payload,
     }
     if is_error:
         result["isError"] = True
     return result
-
-
-def _summary_text(payload: dict[str, Any], *, is_error: bool) -> str:
-    if is_error:
-        error = payload.get("error")
-        if isinstance(error, dict):
-            code = error.get("code")
-            message = error.get("message")
-            if isinstance(code, str) and isinstance(message, str):
-                return f"Error {code}: {message}. See structuredContent."
-            if isinstance(code, str):
-                return f"Error {code}. See structuredContent."
-        return "Error. See structuredContent."
-
-    if payload.get("ok") is True:
-        result_count = _list_count(payload, "results")
-        if result_count is not None:
-            return f"OK. Returned {result_count} result(s). See structuredContent."
-        section_count = _list_count(payload, "content_sections")
-        if section_count is not None:
-            return f"OK. Returned {section_count} content section(s). See structuredContent."
-        resource_count = _list_count(payload, "resources")
-        if resource_count is not None:
-            return f"OK. Returned {resource_count} cached resource(s). See structuredContent."
-        return "OK. See structuredContent."
-
-    return "Result returned in structuredContent."
-
-
-def _list_count(payload: dict[str, Any], key: str) -> int | None:
-    value = payload.get(key)
-    if isinstance(value, list):
-        return len(value)
-    return None
 
 
 def success_response(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -95,7 +65,11 @@ def success_response(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
     if tool_name == "list_documents":
         return _results_response(payload, lambda item: _pick(item, DOCUMENT_FIELDS))
     if tool_name == "get_document_metadata":
-        return {"ok": True, **_pick(payload, DOCUMENT_FIELDS)}
+        response = {"ok": True, **_pick(payload, DOCUMENT_FIELDS)}
+        next_action = _metadata_next_action(response)
+        if next_action is not None:
+            response["next_action"] = next_action
+        return response
     if tool_name == "list_document_page_images":
         return {
             "ok": True,
@@ -117,14 +91,39 @@ def success_response(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **payload}
 
 
-def get_document_toc_response(payload: dict[str, Any], resource: CachedResource, *, cache_hit: bool) -> dict[str, Any]:
-    return {
+def get_document_toc_response(
+    payload: dict[str, Any],
+    resource: CachedResource,
+    *,
+    cache_hit: bool,
+    path_prefix: list[str] | None = None,
+    max_depth: int = 2,
+    include_sections: bool = False,
+) -> dict[str, Any]:
+    toc_entries = [_pick(item, TOC_FIELDS) for item in _list(payload, "toc")]
+    selected_entries = _filter_toc_by_path_prefix(toc_entries, path_prefix or [])
+    toc_mode = _toc_mode(selected_entries, path_prefix=path_prefix, include_sections=include_sections)
+    toc_response = (
+        selected_entries
+        if toc_mode == "sections"
+        else _build_toc_outline(selected_entries, max_depth=max_depth, include_sections=include_sections)
+    )
+    response = {
         "ok": True,
         **_pick(payload, ("document_id",)),
-        "toc": [_pick(item, TOC_FIELDS) for item in _list(payload, "toc")],
+        "toc_mode": toc_mode,
+        "path_prefix": path_prefix or [],
+        "max_depth": max_depth,
+        "include_sections": include_sections,
+        "selection_policy": _toc_selection_policy(toc_mode, selected_entries, path_prefix=path_prefix),
+        "toc": toc_response,
         "resource_uri": resource.resource_uri,
         "cache_hit": cache_hit,
     }
+    next_action_template = _toc_next_action_template(response.get("document_id"), toc_mode)
+    if next_action_template is not None:
+        response["next_action_template"] = next_action_template
+    return response
 
 
 def get_document_content_response(
@@ -134,106 +133,272 @@ def get_document_content_response(
     cache_hit: bool,
     cached_sections: bool,
     return_content: bool,
-    max_chars: int,
-    offset: int,
+    requested_section_ids: list[str] | None = None,
+    missing_section_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    remaining_chars = max_chars
     section_responses = []
-    character_limit_reached = False
     for section, resource_uri in content_sections:
-        if return_content and remaining_chars <= 0:
-            section_response = _content_section_omitted_response(
-                section,
-                resource_uri=resource_uri,
-                cached=cached_sections,
-                offset=offset,
-            )
-            character_limit_reached = True
-            section_responses.append(section_response)
-            continue
-
         section_response = _content_section_response(
             section,
+            document_id=document_id,
             resource_uri=resource_uri,
             cached=cached_sections,
             return_content=return_content,
-            max_chars=remaining_chars,
-            offset=offset,
         )
-        if return_content:
-            content = section_response.get("content")
-            if isinstance(content, str):
-                remaining_chars = max(0, remaining_chars - len(content))
-            if section_response.get("truncated") is True:
-                character_limit_reached = True
         section_responses.append(section_response)
 
-    return {
+    response: dict[str, Any] = {
         "ok": True,
         "document_id": document_id,
         "content_sections": section_responses,
-        "max_characters": max_chars,
-        "character_limit_reached": character_limit_reached,
+        "max_inline_section_characters": MAX_INLINE_SECTION_CHARACTERS,
+        "max_inline_full_document_characters": MAX_INLINE_FULL_DOCUMENT_CHARACTERS,
         "cache_hit": cache_hit,
     }
+    if requested_section_ids is not None:
+        response["requested_section_ids"] = requested_section_ids
+    if missing_section_ids:
+        response["missing_section_ids"] = missing_section_ids
+    return response
 
 
 def _content_section_response(
     section: dict[str, Any],
     *,
+    document_id: str,
     resource_uri: str,
     cached: bool,
     return_content: bool,
-    max_chars: int,
-    offset: int,
 ) -> dict[str, Any]:
     fields = CONTENT_SECTION_FIELDS if return_content else tuple(field for field in CONTENT_SECTION_FIELDS if field != "content")
     response = _pick(section, fields)
     if return_content:
         content = response.get("content")
         if isinstance(content, str):
-            content_slice = content[offset : offset + max_chars]
-            response["content"] = content_slice
-            next_offset = offset + len(content_slice)
-            response["truncated"] = next_offset < len(content)
-            response["offset"] = offset
-            if response["truncated"]:
-                response["next_offset"] = next_offset
+            inline_limit = (
+                MAX_INLINE_FULL_DOCUMENT_CHARACTERS
+                if section.get("section_id") == FULL_DOCUMENT_SECTION_ID
+                else MAX_INLINE_SECTION_CHARACTERS
+            )
+            if _section_text_length(section, content) > inline_limit:
+                return _content_section_manifest_response(
+                    section,
+                    document_id=document_id,
+                    resource_uri=resource_uri,
+                    cached=cached,
+                    reason="section_exceeds_inline_threshold",
+                )
+            response["content_mode"] = "inline"
     response["resource_uri"] = resource_uri
     response["cached"] = cached
     return response
 
 
-def _content_section_omitted_response(
+def _content_section_manifest_response(
     section: dict[str, Any],
     *,
+    document_id: str,
     resource_uri: str,
     cached: bool,
-    offset: int,
+    reason: str,
 ) -> dict[str, Any]:
     response = _pick(section, tuple(field for field in CONTENT_SECTION_FIELDS if field != "content"))
-    response["content_omitted"] = True
-    response["omitted_reason"] = "character_limit_reached"
-    response["offset"] = offset
+    response["content_mode"] = "manifest"
+    response["reason"] = reason
+    response["content_available_in_cache"] = True
+    response["recommended_tools"] = ["search_section_contents", "get_section_window"]
+    response["next_action"] = _manifest_section_next_action(document_id, section.get("section_id"))
     response["resource_uri"] = resource_uri
+    response["source_resource_uri"] = resource_uri
     response["cached"] = cached
     return response
+
+
+def _metadata_next_action(response: dict[str, Any]) -> dict[str, Any] | None:
+    content_status = response.get("content_status")
+    document_id = response.get("document_id")
+    reference_url = response.get("reference_url")
+    if content_status == "ready" and isinstance(document_id, str) and document_id:
+        return {
+            "status": "ready",
+            "recommended_tools": ["get_document_toc", "get_document_content"],
+            "argument_hints": {"document_id": document_id},
+        }
+    if content_status == "pending_release":
+        return {
+            "status": "pending_release",
+            "message": "Content is not available yet. Wait before retrying metadata or content retrieval.",
+        }
+    if content_status == "external_only":
+        next_action: dict[str, Any] = {
+            "status": "external_only",
+            "message": "Do not retry Momonga content retrieval; inspect the external reference instead.",
+        }
+        if isinstance(reference_url, str) and reference_url:
+            next_action["reference_url"] = reference_url
+        return next_action
+    return None
+
+
+def _manifest_section_next_action(document_id: str, section_id: Any) -> dict[str, Any]:
+    argument_hints: dict[str, Any] = {
+        "document_id": document_id,
+        "query": "Search terms for the needed evidence in this section.",
+    }
+    if isinstance(section_id, str) and section_id:
+        argument_hints["section_id"] = section_id
+    return {
+        "tool": "search_section_contents",
+        "argument_hints": argument_hints,
+        "fallback_tool": "get_section_window",
+    }
+
+
+def _section_text_length(section: dict[str, Any], content: str) -> int:
+    character_count = section.get("character_count")
+    if type(character_count) is int:
+        return character_count
+    return len(content)
 
 
 def _results_response(payload: dict[str, Any], item_mapper: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
     response: dict[str, Any] = {"ok": True, "results": [item_mapper(item) for item in _list(payload, "results")]}
-    if "next_cursor" in payload:
-        response["next_cursor"] = payload["next_cursor"]
+    next_cursor = payload.get("next_cursor")
+    if isinstance(next_cursor, str) and next_cursor:
+        response["next_cursor"] = next_cursor
     return response
 
 
 def _document_search_result(item: dict[str, Any]) -> dict[str, Any]:
     response = _pick(item, DOCUMENT_FIELDS)
     response["matches"] = [
-        _pick(match, ("section_id", "section_title", "score", "snippet", "page_number", "has_visual"))
+        _pick(
+            match,
+            (
+                "section_id",
+                "section_title",
+                "heading_path",
+                "character_count",
+                "score",
+                "snippet",
+                "page_number",
+                "has_visual",
+            ),
+        )
         for match in _list(item, "matches")
     ]
     return response
+
+
+def _filter_toc_by_path_prefix(toc: list[dict[str, Any]], path_prefix: list[str]) -> list[dict[str, Any]]:
+    if not path_prefix:
+        return toc
+    return [
+        item
+        for item in toc
+        if isinstance(item.get("heading_path"), list) and item["heading_path"][: len(path_prefix)] == path_prefix
+    ]
+
+
+def _toc_mode(toc: list[dict[str, Any]], *, path_prefix: list[str] | None, include_sections: bool) -> str:
+    if path_prefix:
+        return "subtree"
+    if include_sections or len(toc) <= MAX_DIRECT_TOC_SECTIONS:
+        return "sections"
+    return "outline"
+
+
+def _toc_selection_policy(
+    toc_mode: str,
+    toc: list[dict[str, Any]],
+    *,
+    path_prefix: list[str] | None,
+) -> dict[str, Any]:
+    if path_prefix:
+        reason = "path_prefix_requested"
+    elif toc_mode == "sections":
+        reason = "toc_is_small"
+    else:
+        reason = "toc_is_large"
+    return {
+        "mode": "auto",
+        "reason": reason,
+        "max_direct_toc_sections": MAX_DIRECT_TOC_SECTIONS,
+        "selected_toc_entry_count": len(toc),
+    }
+
+
+def _toc_next_action_template(
+    document_id: Any,
+    toc_mode: str,
+) -> dict[str, Any] | None:
+    if toc_mode != "outline" or not isinstance(document_id, str) or not document_id:
+        return None
+
+    return {
+        "tool": "get_document_toc",
+        "argument_hints": {
+            "document_id": document_id,
+            "path_prefix": "Choose a relevant heading_path from the returned toc outline.",
+            "include_sections": True,
+        },
+    }
+
+
+def _build_toc_outline(toc: list[dict[str, Any]], *, max_depth: int, include_sections: bool) -> list[dict[str, Any]]:
+    root: dict[str, Any] = {"children": {}, "sections": []}
+    for section in toc:
+        heading_path = section.get("heading_path")
+        if not isinstance(heading_path, list) or not heading_path:
+            heading_path = [section.get("section_title") or section.get("section_id") or "Untitled"]
+        heading_path = [item for item in heading_path if isinstance(item, str)]
+        if not heading_path:
+            continue
+
+        node = root
+        current_path = []
+        for heading in heading_path:
+            current_path.append(heading)
+            node = node["children"].setdefault(
+                heading,
+                {"heading_title": heading, "heading_path": list(current_path), "children": {}, "sections": []},
+            )
+        node["sections"].append(section)
+
+    depth_limit = max(2, max_depth)
+    return [
+        _outline_node(child, depth_limit=depth_limit, include_sections=include_sections) for child in root["children"].values()
+    ]
+
+
+def _outline_node(node: dict[str, Any], *, depth_limit: int, include_sections: bool) -> dict[str, Any]:
+    children = list(node["children"].values())
+    sections = _collect_sections(node)
+    page_numbers = [section["page_number"] for section in sections if type(section.get("page_number")) is int]
+    result: dict[str, Any] = {
+        "heading_title": node["heading_title"],
+        "heading_path": node["heading_path"],
+        "section_count": len(sections),
+        "total_character_count": sum(
+            section["character_count"] for section in sections if type(section.get("character_count")) is int
+        ),
+        "page_range": {"start": min(page_numbers), "end": max(page_numbers)} if page_numbers else None,
+        "has_children": bool(children),
+    }
+    if include_sections:
+        result["sections"] = [_pick(section, TOC_FIELDS) for section in sections]
+    if len(node["heading_path"]) < depth_limit and children:
+        result["children"] = [
+            _outline_node(child, depth_limit=depth_limit, include_sections=include_sections) for child in children
+        ]
+    return result
+
+
+def _collect_sections(node: dict[str, Any]) -> list[dict[str, Any]]:
+    sections = list(node["sections"])
+    for child in node["children"].values():
+        sections.extend(_collect_sections(child))
+    return sections
 
 
 def _page_numbers(payload: dict[str, Any]) -> list[int]:

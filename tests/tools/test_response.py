@@ -77,6 +77,8 @@ class ToolResponseTests(unittest.TestCase):
                             {
                                 "section_id": "sec_1",
                                 "section_title": "Risk",
+                                "heading_path": ["Business", "Risk"],
+                                "character_count": 1200,
                                 "score": 9.2,
                                 "snippet": "Commodity price risk...",
                                 "page_number": 4,
@@ -109,6 +111,8 @@ class ToolResponseTests(unittest.TestCase):
                             {
                                 "section_id": "sec_1",
                                 "section_title": "Risk",
+                                "heading_path": ["Business", "Risk"],
+                                "character_count": 1200,
                                 "score": 9.2,
                                 "snippet": "Commodity price risk...",
                                 "page_number": 4,
@@ -117,6 +121,70 @@ class ToolResponseTests(unittest.TestCase):
                         ],
                     }
                 ],
+            },
+        )
+
+    def test_results_response_drops_null_next_cursor(self) -> None:
+        response = success_response(
+            "list_documents",
+            {
+                "results": [],
+                "next_cursor": None,
+            },
+        )
+
+        self.assertEqual(response, {"ok": True, "results": []})
+
+    def test_metadata_response_includes_ready_next_action(self) -> None:
+        response = success_response(
+            "get_document_metadata",
+            {
+                "document_id": "doc_123",
+                "title": "Report",
+                "content_status": "ready",
+                "reference_url": "https://example.com/report.pdf",
+            },
+        )
+
+        self.assertEqual(
+            response["next_action"],
+            {
+                "status": "ready",
+                "recommended_tools": ["get_document_toc", "get_document_content"],
+                "argument_hints": {"document_id": "doc_123"},
+            },
+        )
+
+    def test_metadata_response_includes_pending_release_next_action(self) -> None:
+        response = success_response(
+            "get_document_metadata",
+            {
+                "document_id": "doc_123",
+                "title": "Report",
+                "content_status": "pending_release",
+            },
+        )
+
+        self.assertEqual(response["next_action"]["status"], "pending_release")
+        self.assertIn("Wait", response["next_action"]["message"])
+
+    def test_metadata_response_includes_external_only_next_action(self) -> None:
+        response = success_response(
+            "get_document_metadata",
+            {
+                "document_id": "doc_123",
+                "title": "Report",
+                "content_status": "external_only",
+                "reference_url": "https://example.com/report.pdf",
+            },
+        )
+
+        self.assertEqual(
+            response["next_action"],
+            {
+                "status": "external_only",
+                "message": "Do not retry Momonga content retrieval; inspect the external reference instead.",
+                "reference_url": "https://example.com/report.pdf",
             },
         )
 
@@ -167,7 +235,6 @@ class ToolResponseTests(unittest.TestCase):
                         "role": "primary",
                         "size_bytes": 1000,
                         "sha256": "not needed in model context",
-                        "credit_cost": 8,
                     }
                 ],
             },
@@ -279,8 +346,6 @@ class ToolResponseTests(unittest.TestCase):
             cache_hit=True,
             cached_sections=True,
             return_content=False,
-            max_chars=8000,
-            offset=0,
         )
 
         self.assertEqual(
@@ -297,13 +362,13 @@ class ToolResponseTests(unittest.TestCase):
                         "cached": True,
                     }
                 ],
-                "max_characters": 8000,
-                "character_limit_reached": False,
+                "max_inline_section_characters": 3000,
+                "max_inline_full_document_characters": 10000,
                 "cache_hit": True,
             },
         )
 
-    def test_content_response_truncates_content_with_next_offset(self) -> None:
+    def test_content_response_returns_inline_for_small_section(self) -> None:
         response = get_document_content_response(
             "doc_123",
             [
@@ -320,8 +385,6 @@ class ToolResponseTests(unittest.TestCase):
             cache_hit=False,
             cached_sections=False,
             return_content=True,
-            max_chars=4,
-            offset=3,
         )
 
         self.assertEqual(
@@ -330,96 +393,215 @@ class ToolResponseTests(unittest.TestCase):
                 "section_id": "sec_1",
                 "section_title": "Risk",
                 "character_count": 10,
-                "content": "3456",
-                "truncated": True,
-                "offset": 3,
-                "next_offset": 7,
+                "content": "0123456789",
+                "content_mode": "inline",
                 "resource_uri": "momonga://documents/doc_123/sections/sec_1",
                 "cached": False,
             },
         )
 
-    def test_content_response_applies_character_limit_across_sections(self) -> None:
+    def test_content_response_includes_requested_and_missing_section_ids(self) -> None:
         response = get_document_content_response(
             "doc_123",
             [
                 (
                     {
                         "section_id": "sec_1",
+                        "section_title": "Risk",
                         "character_count": 4,
-                        "content": "abcd",
+                        "content": "body",
                     },
                     "momonga://documents/doc_123/sections/sec_1",
-                ),
-                (
-                    {
-                        "section_id": "sec_2",
-                        "character_count": 4,
-                        "content": "efgh",
-                    },
-                    "momonga://documents/doc_123/sections/sec_2",
-                ),
+                )
             ],
             cache_hit=False,
             cached_sections=False,
             return_content=True,
-            max_chars=6,
-            offset=0,
+            requested_section_ids=["sec_1", "sec_missing"],
+            missing_section_ids=["sec_missing"],
         )
 
-        self.assertEqual(response["content_sections"][0]["content"], "abcd")
-        self.assertEqual(response["content_sections"][1]["content"], "ef")
-        self.assertTrue(response["content_sections"][1]["truncated"])
-        self.assertEqual(response["max_characters"], 6)
-        self.assertTrue(response["character_limit_reached"])
+        self.assertEqual(response["requested_section_ids"], ["sec_1", "sec_missing"])
+        self.assertEqual(response["missing_section_ids"], ["sec_missing"])
 
-    def test_content_response_marks_unstarted_sections_omitted_after_character_limit(self) -> None:
+    def test_content_response_returns_manifest_for_large_section(self) -> None:
         response = get_document_content_response(
             "doc_123",
             [
                 (
                     {
                         "section_id": "sec_1",
-                        "character_count": 4,
-                        "content": "abcd",
+                        "section_title": "Risk",
+                        "character_count": 3001,
+                        "content": "x" * 3001,
                     },
                     "momonga://documents/doc_123/sections/sec_1",
-                ),
-                (
-                    {
-                        "section_id": "sec_2",
-                        "character_count": 4,
-                        "content": "efgh",
-                    },
-                    "momonga://documents/doc_123/sections/sec_2",
-                ),
+                )
             ],
             cache_hit=False,
             cached_sections=False,
             return_content=True,
-            max_chars=4,
-            offset=0,
         )
 
-        omitted_section = response["content_sections"][1]
         self.assertEqual(
-            omitted_section,
+            response["content_sections"][0],
             {
-                "section_id": "sec_2",
-                "character_count": 4,
-                "content_omitted": True,
-                "omitted_reason": "character_limit_reached",
-                "offset": 0,
-                "resource_uri": "momonga://documents/doc_123/sections/sec_2",
+                "section_id": "sec_1",
+                "section_title": "Risk",
+                "character_count": 3001,
+                "content_mode": "manifest",
+                "reason": "section_exceeds_inline_threshold",
+                "content_available_in_cache": True,
+                "recommended_tools": ["search_section_contents", "get_section_window"],
+                "next_action": {
+                    "tool": "search_section_contents",
+                    "argument_hints": {
+                        "document_id": "doc_123",
+                        "section_id": "sec_1",
+                        "query": "Search terms for the needed evidence in this section.",
+                    },
+                    "fallback_tool": "get_section_window",
+                },
+                "resource_uri": "momonga://documents/doc_123/sections/sec_1",
+                "source_resource_uri": "momonga://documents/doc_123/sections/sec_1",
                 "cached": False,
             },
         )
-        self.assertNotIn("content", omitted_section)
-        self.assertNotIn("truncated", omitted_section)
-        self.assertNotIn("next_offset", omitted_section)
-        self.assertTrue(response["character_limit_reached"])
+        self.assertNotIn("content", response["content_sections"][0])
 
-    def test_toc_response_keeps_only_toc_fields(self) -> None:
+    def test_content_response_inlines_full_document_up_to_full_document_threshold(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {
+                        "section_id": "__mcp_full_document__",
+                        "section_title": "Full document",
+                        "character_count": 9000,
+                        "content": "x" * 9000,
+                    },
+                    "momonga://documents/doc_123/sections/__mcp_full_document__",
+                )
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+        )
+
+        section = response["content_sections"][0]
+        self.assertEqual(section["content_mode"], "inline")
+        self.assertEqual(section["content"], "x" * 9000)
+
+    def test_content_response_returns_manifest_for_full_document_over_threshold(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {
+                        "section_id": "__mcp_full_document__",
+                        "section_title": "Full document",
+                        "character_count": 10001,
+                        "content": "x" * 10001,
+                    },
+                    "momonga://documents/doc_123/sections/__mcp_full_document__",
+                )
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+        )
+
+        section = response["content_sections"][0]
+        self.assertEqual(section["content_mode"], "manifest")
+        self.assertEqual(section["reason"], "section_exceeds_inline_threshold")
+        self.assertNotIn("content", section)
+
+    def test_content_response_inlines_multiple_small_sections_without_total_budget(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {
+                        "section_id": "sec_1",
+                        "character_count": 4,
+                        "content": "abcd",
+                    },
+                    "momonga://documents/doc_123/sections/sec_1",
+                ),
+                (
+                    {
+                        "section_id": "sec_2",
+                        "character_count": 4,
+                        "content": "efgh",
+                    },
+                    "momonga://documents/doc_123/sections/sec_2",
+                ),
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+        )
+
+        self.assertEqual(response["content_sections"][0]["content"], "abcd")
+        self.assertEqual(response["content_sections"][0]["content_mode"], "inline")
+        self.assertEqual(response["content_sections"][1]["content"], "efgh")
+        self.assertEqual(response["content_sections"][1]["content_mode"], "inline")
+
+    def test_content_response_uses_section_limit_even_after_small_sections(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {
+                        "section_id": "sec_1",
+                        "character_count": 4,
+                        "content": "abcd",
+                    },
+                    "momonga://documents/doc_123/sections/sec_1",
+                ),
+                (
+                    {
+                        "section_id": "sec_2",
+                        "character_count": 3001,
+                        "content": "x" * 3001,
+                    },
+                    "momonga://documents/doc_123/sections/sec_2",
+                ),
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+        )
+
+        manifest_section = response["content_sections"][1]
+        self.assertEqual(
+            manifest_section,
+            {
+                "section_id": "sec_2",
+                "character_count": 3001,
+                "content_mode": "manifest",
+                "reason": "section_exceeds_inline_threshold",
+                "content_available_in_cache": True,
+                "recommended_tools": ["search_section_contents", "get_section_window"],
+                "next_action": {
+                    "tool": "search_section_contents",
+                    "argument_hints": {
+                        "document_id": "doc_123",
+                        "section_id": "sec_2",
+                        "query": "Search terms for the needed evidence in this section.",
+                    },
+                    "fallback_tool": "get_section_window",
+                },
+                "resource_uri": "momonga://documents/doc_123/sections/sec_2",
+                "source_resource_uri": "momonga://documents/doc_123/sections/sec_2",
+                "cached": False,
+            },
+        )
+        self.assertNotIn("content", manifest_section)
+        self.assertNotIn("truncated", manifest_section)
+        self.assertNotIn("next_offset", manifest_section)
+
+    def test_get_document_toc_returns_sections_for_small_toc_by_default(self) -> None:
         response = get_document_toc_response(
             {
                 "document_id": "doc_123",
@@ -429,11 +611,18 @@ class ToolResponseTests(unittest.TestCase):
                     {
                         "section_id": "sec_1",
                         "section_title": "Risk",
-                        "heading_path": ["Risk"],
+                        "heading_path": ["Business", "Risk"],
                         "character_count": 100,
                         "page_number": 2,
                         "internal_extra": "dropped",
-                    }
+                    },
+                    {
+                        "section_id": "sec_2",
+                        "section_title": "MD&A",
+                        "heading_path": ["Business", "MD&A"],
+                        "character_count": 150,
+                        "page_number": 4,
+                    },
                 ],
             },
             CachedResource(resource_uri="momonga://documents/doc_123/toc", path=Path("toc.json")),
@@ -445,19 +634,192 @@ class ToolResponseTests(unittest.TestCase):
             {
                 "ok": True,
                 "document_id": "doc_123",
+                "toc_mode": "sections",
+                "path_prefix": [],
+                "max_depth": 2,
+                "include_sections": False,
+                "selection_policy": {
+                    "mode": "auto",
+                    "reason": "toc_is_small",
+                    "max_direct_toc_sections": 50,
+                    "selected_toc_entry_count": 2,
+                },
                 "toc": [
                     {
                         "section_id": "sec_1",
                         "section_title": "Risk",
-                        "heading_path": ["Risk"],
+                        "heading_path": ["Business", "Risk"],
                         "character_count": 100,
                         "page_number": 2,
-                    }
+                    },
+                    {
+                        "section_id": "sec_2",
+                        "section_title": "MD&A",
+                        "heading_path": ["Business", "MD&A"],
+                        "character_count": 150,
+                        "page_number": 4,
+                    },
                 ],
                 "resource_uri": "momonga://documents/doc_123/toc",
                 "cache_hit": False,
             },
         )
+
+    def test_get_document_toc_returns_outline_for_large_toc_by_default(self) -> None:
+        groups = [
+            ("Business Overview", range(1, 10)),
+            ("Operating Results", range(10, 31)),
+            ("Governance", range(31, 43)),
+            ("Financial Statements", range(43, 52)),
+        ]
+        toc = [
+            {
+                "section_id": f"sec_{index}",
+                "section_title": f"Section {index}",
+                "heading_path": ["Business", group_title, f"Section {index}"],
+                "character_count": 10,
+                "page_number": index,
+            }
+            for group_title, indexes in groups
+            for index in indexes
+        ]
+
+        response = get_document_toc_response(
+            {
+                "document_id": "doc_123",
+                "toc": toc,
+            },
+            CachedResource(resource_uri="momonga://documents/doc_123/toc", path=Path("toc.json")),
+            cache_hit=False,
+        )
+
+        self.assertEqual(response["toc_mode"], "outline")
+        self.assertEqual(
+            response["selection_policy"],
+            {
+                "mode": "auto",
+                "reason": "toc_is_large",
+                "max_direct_toc_sections": 50,
+                "selected_toc_entry_count": 51,
+            },
+        )
+        self.assertEqual(
+            response["next_action_template"],
+            {
+                "tool": "get_document_toc",
+                "argument_hints": {
+                    "document_id": "doc_123",
+                    "path_prefix": "Choose a relevant heading_path from the returned toc outline.",
+                    "include_sections": True,
+                },
+            },
+        )
+        self.assertEqual(
+            response["toc"],
+            [
+                {
+                    "heading_title": "Business",
+                    "heading_path": ["Business"],
+                    "section_count": 51,
+                    "total_character_count": 510,
+                    "page_range": {"start": 1, "end": 51},
+                    "has_children": True,
+                    "children": [
+                        {
+                            "heading_title": "Business Overview",
+                            "heading_path": ["Business", "Business Overview"],
+                            "section_count": 9,
+                            "total_character_count": 90,
+                            "page_range": {"start": 1, "end": 9},
+                            "has_children": True,
+                        },
+                        {
+                            "heading_title": "Operating Results",
+                            "heading_path": ["Business", "Operating Results"],
+                            "section_count": 21,
+                            "total_character_count": 210,
+                            "page_range": {"start": 10, "end": 30},
+                            "has_children": True,
+                        },
+                        {
+                            "heading_title": "Governance",
+                            "heading_path": ["Business", "Governance"],
+                            "section_count": 12,
+                            "total_character_count": 120,
+                            "page_range": {"start": 31, "end": 42},
+                            "has_children": True,
+                        },
+                        {
+                            "heading_title": "Financial Statements",
+                            "heading_path": ["Business", "Financial Statements"],
+                            "section_count": 9,
+                            "total_character_count": 90,
+                            "page_range": {"start": 43, "end": 51},
+                            "has_children": True,
+                        },
+                    ],
+                }
+            ],
+        )
+
+    def test_get_document_toc_filters_by_path_prefix(self) -> None:
+        response = get_document_toc_response(
+            {
+                "document_id": "doc_123",
+                "toc": [
+                    {
+                        "section_id": "sec_1",
+                        "section_title": "Risk",
+                        "heading_path": ["Business", "Risk"],
+                        "character_count": 100,
+                        "page_number": 2,
+                    },
+                    {
+                        "section_id": "sec_2",
+                        "section_title": "Governance",
+                        "heading_path": ["Governance"],
+                        "character_count": 50,
+                        "page_number": 8,
+                    },
+                ],
+            },
+            CachedResource(resource_uri="momonga://documents/doc_123/toc", path=Path("toc.json")),
+            cache_hit=True,
+            path_prefix=["Business"],
+        )
+
+        self.assertEqual(response["toc_mode"], "subtree")
+        self.assertEqual(response["selection_policy"]["reason"], "path_prefix_requested")
+        self.assertNotIn("next_action_template", response)
+        self.assertEqual(response["path_prefix"], ["Business"])
+        self.assertEqual(len(response["toc"]), 1)
+        self.assertEqual(response["toc"][0]["heading_path"], ["Business"])
+        self.assertEqual(response["toc"][0]["section_count"], 1)
+
+    def test_get_document_toc_include_sections_returns_leaf_sections(self) -> None:
+        response = get_document_toc_response(
+            {
+                "document_id": "doc_123",
+                "toc": [
+                    {
+                        "section_id": "sec_1",
+                        "section_title": "Risk",
+                        "heading_path": ["Business", "Risk"],
+                        "character_count": 100,
+                        "page_number": 2,
+                        "internal_extra": "dropped",
+                    }
+                ],
+            },
+            CachedResource(resource_uri="momonga://documents/doc_123/toc", path=Path("toc.json")),
+            cache_hit=True,
+            max_depth=2,
+            include_sections=True,
+        )
+
+        self.assertEqual(response["toc_mode"], "sections")
+        self.assertEqual(response["toc"][0]["section_id"], "sec_1")
+        self.assertNotIn("internal_extra", response["toc"][0])
 
 
 if __name__ == "__main__":

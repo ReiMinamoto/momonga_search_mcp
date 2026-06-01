@@ -2,14 +2,26 @@ from __future__ import annotations
 
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
-from momonga_search_mcp.config import API_TIMEOUT_SECONDS, Config, ConfigError
+from momonga_search_mcp.config import (
+    API_TIMEOUT_SECONDS,
+    BYTES_PER_GB,
+    DEFAULT_CACHE_MAX_BYTES,
+    SERVER_VERSION,
+    Config,
+    ConfigError,
+    default_cache_dir,
+    resolve_cache_dir,
+    resolved_server_version,
+)
 
 
 class ConfigTests(unittest.TestCase):
-    def test_requires_api_key(self) -> None:
-        with self.assertRaisesRegex(ConfigError, "MOMONGA_SEARCH_API_KEY"):
-            Config.from_env({})
+    def test_allows_missing_api_key_for_diagnose_setup(self) -> None:
+        config = Config.from_env({})
+
+        self.assertEqual(config.api_key, "")
 
     def test_loads_defaults_from_env(self) -> None:
         config = Config.from_env({"MOMONGA_SEARCH_API_KEY": "ms_test_xxx"})
@@ -17,42 +29,89 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.api_key, "ms_test_xxx")
         self.assertEqual(config.base_url, "https://api.momongasearch.com/v1")
         self.assertEqual(config.api_timeout_seconds, API_TIMEOUT_SECONDS)
+        self.assertEqual(config.cache_max_bytes, DEFAULT_CACHE_MAX_BYTES)
 
     def test_loads_overrides_from_env(self) -> None:
         config = Config.from_env(
             {
                 "MOMONGA_SEARCH_API_KEY": "ms_test_xxx",
                 "MOMONGA_BASE_URL": "https://example.com/api/",
-                "MOMONGA_MCP_CACHE_DIR": "/tmp/momonga-cache",
+                "MOMONGA_SEARCH_MCP_CACHE_DIR": "/tmp/momonga-cache",
+                "MOMONGA_SEARCH_MCP_CACHE_MAX_GB": "2",
                 "MOMONGA_MCP_LOG_LEVEL": "debug",
             }
         )
 
         self.assertEqual(config.base_url, "https://example.com/api")
         self.assertEqual(config.cache_dir, Path("/tmp/momonga-cache"))
+        self.assertEqual(config.cache_max_bytes, 2 * BYTES_PER_GB)
         self.assertEqual(config.log_level, "DEBUG")
-        self.assertTrue(config.cache_enabled)
 
-    def test_cache_can_be_disabled_from_env(self) -> None:
-        env = {
-            "MOMONGA_SEARCH_API_KEY": "ms_test_xxx",
-            "MOMONGA_MCP_CACHE_ENABLED": "false",
-        }
+    def test_loads_fractional_cache_max_gb(self) -> None:
+        config = Config.from_env(
+            {
+                "MOMONGA_SEARCH_API_KEY": "ms_test_xxx",
+                "MOMONGA_SEARCH_MCP_CACHE_MAX_GB": "0.5",
+            }
+        )
 
-        config = Config.from_env(env)
+        self.assertEqual(config.cache_max_bytes, 500_000_000)
 
-        self.assertFalse(config.cache_enabled)
+    def test_ignores_old_cache_dir_env(self) -> None:
+        config = Config.from_env(
+            {
+                "MOMONGA_SEARCH_API_KEY": "ms_test_xxx",
+                "MOMONGA_MCP_CACHE_DIR": "/tmp/legacy-cache",
+            }
+        )
 
-    def test_disable_cache_env_takes_precedence(self) -> None:
-        env = {
-            "MOMONGA_SEARCH_API_KEY": "ms_test_xxx",
-            "MOMONGA_MCP_CACHE_ENABLED": "true",
-            "MOMONGA_MCP_DISABLE_CACHE": "1",
-        }
+        self.assertEqual(config.cache_dir, default_cache_dir())
 
-        config = Config.from_env(env)
+    def test_resolves_cache_dir_from_xdg_cache_home(self) -> None:
+        with patch.dict("os.environ", {"XDG_CACHE_HOME": "/tmp/xdg-cache"}, clear=True):
+            cache_dir = resolve_cache_dir({})
 
-        self.assertFalse(config.cache_enabled)
+        self.assertEqual(cache_dir, Path("/tmp/xdg-cache/momonga-search-mcp"))
+
+    def test_ignores_relative_xdg_cache_home(self) -> None:
+        with patch.dict("os.environ", {"XDG_CACHE_HOME": "relative-cache"}, clear=True):
+            cache_dir = resolve_cache_dir({})
+            expected_cache_dir = default_cache_dir()
+
+        self.assertEqual(cache_dir, expected_cache_dir)
+
+    def test_rejects_relative_cache_dir_override(self) -> None:
+        with self.assertRaisesRegex(ConfigError, "MOMONGA_SEARCH_MCP_CACHE_DIR"):
+            resolve_cache_dir({"MOMONGA_SEARCH_MCP_CACHE_DIR": "relative-cache"})
+
+    def test_treats_empty_cache_dir_override_as_unset(self) -> None:
+        with patch.dict("os.environ", {"XDG_CACHE_HOME": "/tmp/xdg-cache"}, clear=True):
+            cache_dir = resolve_cache_dir({"MOMONGA_SEARCH_MCP_CACHE_DIR": ""})
+
+        self.assertEqual(cache_dir, Path("/tmp/xdg-cache/momonga-search-mcp"))
+
+    def test_resolved_server_version_falls_back_when_metadata_version_is_missing(self) -> None:
+        with patch("momonga_search_mcp.config.version", return_value=None):
+            self.assertEqual(resolved_server_version(), SERVER_VERSION)
+
+    def test_ignores_old_cache_dir_env_when_new_cache_dir_is_set(self) -> None:
+        cache_dir = resolve_cache_dir(
+            {
+                "MOMONGA_SEARCH_MCP_CACHE_DIR": "/tmp/new-cache",
+                "MOMONGA_MCP_CACHE_DIR": "/tmp/legacy-cache",
+            }
+        )
+
+        self.assertEqual(cache_dir, Path("/tmp/new-cache"))
+
+    def test_rejects_invalid_cache_max_bytes(self) -> None:
+        with self.assertRaisesRegex(ConfigError, "MOMONGA_SEARCH_MCP_CACHE_MAX_GB"):
+            Config.from_env(
+                {
+                    "MOMONGA_SEARCH_API_KEY": "ms_test_xxx",
+                    "MOMONGA_SEARCH_MCP_CACHE_MAX_GB": "0",
+                }
+            )
 
 
 if __name__ == "__main__":

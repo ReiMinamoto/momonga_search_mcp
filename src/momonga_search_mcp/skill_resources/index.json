@@ -1,5 +1,5 @@
 {
-  "version": "0.1.3",
+  "version": "1.0.0",
   "description": "Lightweight workflow index for Momonga Search MCP. Read this before substantive research, then load only the matching detail skill. Pick a skill by matching the user's request against each skill's description and triggers (triggers are example phrases that should map to this skill). For tasks spanning multiple domains (e.g. disclosures and news, or research and file download), load each relevant retrieval skill in turn and then evidence-answering. Retrieval skills feed into evidence-answering; do not load evidence-answering first when retrieval has not happened yet.",
   "skills": [
     {
@@ -33,6 +33,14 @@
       "resource_uri": "skill://skills/file-download.md",
       "triggers": ["画像", "ページ画像", "PDF", "XBRL", "元ファイル", "original", "download"],
       "recommended_first_tools": ["list_document_page_images", "list_document_originals"]
+    },
+    {
+      "id": "evidence-compression",
+      "title": "Evidence Compression",
+      "description": "Compress retrieved document sections or section excerpts into short evidence notes before final answering.",
+      "resource_uri": "skill://skills/evidence-compression.md",
+      "triggers": ["evidence_note", "比較", "要約してから回答", "根拠メモ", "compression"],
+      "recommended_first_tools": ["search_section_contents", "get_section_window"]
     },
     {
       "id": "evidence-answering",

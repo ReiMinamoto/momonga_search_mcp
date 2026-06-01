@@ -8,12 +8,16 @@ from datetime import UTC, datetime
 from email.message import Message
 from email.utils import parsedate_to_datetime
 import json
+import socket
+import ssl
 from typing import Any, BinaryIO
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
-from momonga_search_mcp.config import Config
+import truststore
+
+from momonga_search_mcp.config import SERVER_NAME, SERVER_VERSION, Config
 
 Transport = Callable[[Request, float], BinaryIO]
 PUBLIC_ERROR_FIELDS = (
@@ -50,7 +54,6 @@ class BinaryApiResponse:
 class JsonApiResponse:
     payload: dict[str, Any]
     headers: dict[str, str]
-    inferred_compute_credits: int | None = None
 
 
 class MomongaApiClient:
@@ -58,14 +61,15 @@ class MomongaApiClient:
         self.base_url = config.base_url.rstrip("/")
         self.api_key = config.api_key
         self.timeout_seconds = config.api_timeout_seconds
-        self._transport = _default_transport if transport is None else transport
-        self._last_quota_compute_remaining: int | None = None
+        self._ssl_context = _ssl_context()
+        self._transport = (
+            (lambda request, timeout: _default_transport(request, timeout, context=self._ssl_context))
+            if transport is None
+            else transport
+        )
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.request("GET", path, params=params)
-
-    def get_with_usage(self, path: str, params: dict[str, Any] | None = None) -> JsonApiResponse:
-        return self.request_json_response("GET", path, params=params)
 
     def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.request("POST", path, payload=payload)
@@ -96,7 +100,7 @@ class MomongaApiClient:
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {self.api_key}",
-            "User-Agent": "momonga-search-mcp/0.1",
+            "User-Agent": f"{SERVER_NAME}/{SERVER_VERSION}",
         }
         if payload is not None:
             data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -111,31 +115,21 @@ class MomongaApiClient:
                     if hasattr(raw_headers, "items")
                     else {}
                 )
-                compute_remaining = response_headers.get("x-quota-compute-remaining")
-                current_compute_remaining = (
-                    int(compute_remaining) if compute_remaining and compute_remaining.isdecimal() else None
-                )
-                previous_compute_remaining = self._last_quota_compute_remaining
-                if current_compute_remaining is not None:
-                    self._last_quota_compute_remaining = current_compute_remaining
-                inferred_compute_credits = (
-                    previous_compute_remaining - current_compute_remaining
-                    if previous_compute_remaining is not None
-                    and current_compute_remaining is not None
-                    and current_compute_remaining <= previous_compute_remaining
-                    else None
-                )
                 return JsonApiResponse(
                     payload=_decode_json(response.read()),
                     headers=response_headers,
-                    inferred_compute_credits=inferred_compute_credits,
                 )
         except HTTPError as exc:
             raise _api_error_from_http_error(exc) from exc
         except TimeoutError as exc:
             raise MomongaApiError(None, "request_timeout", "Momonga Search API request timed out") from exc
         except URLError as exc:
-            raise MomongaApiError(None, "network_error", "Momonga Search API request failed", detail=str(exc.reason)) from exc
+            raise MomongaApiError(
+                None,
+                "network_error",
+                "Momonga Search API request failed",
+                detail=str(exc.reason),
+            ) from exc
 
     def request_binary(
         self,
@@ -150,7 +144,7 @@ class MomongaApiClient:
             headers={
                 "Accept": "*/*",
                 "Authorization": f"Bearer {self.api_key}",
-                "User-Agent": "momonga-search-mcp/0.1",
+                "User-Agent": f"{SERVER_NAME}/{SERVER_VERSION}",
             },
             method=method.upper(),
         )
@@ -173,7 +167,12 @@ class MomongaApiClient:
         except TimeoutError as exc:
             raise MomongaApiError(None, "request_timeout", "Momonga Search API request timed out") from exc
         except URLError as exc:
-            raise MomongaApiError(None, "network_error", "Momonga Search API request failed", detail=str(exc.reason)) from exc
+            raise MomongaApiError(
+                None,
+                "network_error",
+                "Momonga Search API request failed",
+                detail=str(exc.reason),
+            ) from exc
 
     def _url(self, path: str, params: dict[str, Any] | None) -> str:
         normalized_path = path if path.startswith("/") else f"/{path}"
@@ -211,8 +210,79 @@ def _clean_params(params: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in params.items() if value is not None}
 
 
-def _default_transport(request: Request, timeout: float) -> BinaryIO:
-    return urlopen(request, timeout=timeout)
+def _default_transport(request: Request, timeout: float, *, context: ssl.SSLContext) -> BinaryIO:
+    return urlopen(request, timeout=timeout, context=context)
+
+
+def _ssl_context() -> ssl.SSLContext:
+    return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+
+def probe_tls_connectivity(
+    base_url: str,
+    *,
+    timeout_seconds: float = 5,
+) -> dict[str, Any]:
+    parsed = urlparse(base_url)
+    host = parsed.hostname
+    if not host:
+        return {"ok": False, "error": "invalid_base_url", "message": "base_url must include a hostname"}
+
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    if parsed.scheme != "https":
+        return {"ok": False, "host": host, "error": "unsupported_scheme", "message": "TLS probe requires an https base_url"}
+
+    context = _ssl_context()
+    try:
+        with socket.create_connection((host, port), timeout_seconds) as sock:
+            with context.wrap_socket(sock, server_hostname=host) as ssock:
+                cert = ssock.getpeercert()
+                subject = dict(x[0] for x in cert.get("subject", []))
+                issuer = dict(x[0] for x in cert.get("issuer", []))
+                return {
+                    "ok": True,
+                    "host": host,
+                    "tls_version": ssock.version(),
+                    "subject_cn": subject.get("commonName"),
+                    "issuer_cn": issuer.get("commonName"),
+                }
+    except ssl.SSLError as exc:
+        message = str(exc)
+        payload: dict[str, Any] = {
+            "ok": False,
+            "host": host,
+            "error": "ssl_verification_failed",
+            "message": message,
+        }
+        hint = _ssl_connectivity_hint(message)
+        if hint is not None:
+            payload["hint"] = hint
+        return payload
+    except OSError as exc:
+        return {
+            "ok": False,
+            "host": host,
+            "error": "connection_failed",
+            "message": str(exc),
+        }
+
+
+def _ssl_connectivity_hint(error_message: str) -> str | None:
+    lower = error_message.lower()
+    antivirus_markers = ("avast", "kaspersky", "eset", "norton", "bitdefender", "mcafee", "f-secure")
+    if any(marker in lower for marker in antivirus_markers):
+        return (
+            "Antivirus HTTPS scanning may be intercepting TLS. "
+            "Disable HTTPS/SSL scanning for api.momongasearch.com, or update and restart the MCP server."
+        )
+    if "unable to get local issuer certificate" in lower:
+        return (
+            "The OS trust store does not trust the server's certificate chain. "
+            "Update and restart the MCP server, or check antivirus HTTPS scanning settings."
+        )
+    if "basic constraints" in lower:
+        return "Python 3.13 rejected an issuing CA certificate. Update and restart the MCP server to use the OS trust store."
+    return None
 
 
 def _decode_json(raw_body: bytes) -> dict[str, Any]:
@@ -303,8 +373,6 @@ def _retry_after_seconds(header_value: str | None, payload: dict[str, Any]) -> i
 def _default_next_action(error: MomongaApiError) -> str:
     if error.retry_after_seconds is not None or error.code in {"rate_limit_exceeded", "rate_limited"}:
         return "Wait for retry_after_seconds before retrying this request."
-    if error.code == "quota_exceeded":
-        return "Stop calling credit-consuming tools for this session unless the user changes quota or task scope."
     if error.code in {"invalid_api_key", "authentication_required", "authentication_failed"}:
         return "Check the Momonga Search API key configuration before retrying."
     if error.code in {"request_timeout", "search_backend_timeout"}:

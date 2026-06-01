@@ -1,18 +1,38 @@
 from __future__ import annotations
 
+from io import BytesIO, StringIO, TextIOWrapper
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
-from momonga_search_mcp.config import Config
-from momonga_search_mcp.server import StdioMCPServer
+from momonga_search_mcp.config import Config, ConfigError
+from momonga_search_mcp.server import StdioMCPServer, _emit_json_line, main
 from tests.tools.fakes import FakeApiClient
 
 
 class ServerTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.server = StdioMCPServer(Config(api_key="ms_test_xxx"))
+        self.server = self._initialized_server(Config(api_key="ms_test_xxx"))
+
+    def _initialized_server(
+        self,
+        config: Config,
+        *,
+        api_client: FakeApiClient | None = None,
+    ) -> StdioMCPServer:
+        server = StdioMCPServer(config, api_client=api_client)
+        server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {},
+            }
+        )
+        server.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        return server
 
     def test_initialize_response_contains_server_info(self) -> None:
         response = self.server.handle_message(
@@ -28,6 +48,7 @@ class ServerTests(unittest.TestCase):
         assert response is not None
         self.assertEqual(response["result"]["protocolVersion"], "2025-11-25")
         self.assertEqual(response["result"]["serverInfo"]["name"], "momonga-search-mcp")
+        self.assertIsInstance(response["result"]["serverInfo"]["version"], str)
         self.assertIn("tools", response["result"]["capabilities"])
 
     def test_ping(self) -> None:
@@ -39,6 +60,38 @@ class ServerTests(unittest.TestCase):
         response = self.server.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
         self.assertIsNone(response)
+
+    def test_rejects_tools_before_initialized_notification(self) -> None:
+        server = StdioMCPServer(Config(api_key="ms_test_xxx"))
+
+        response = server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+        self.assertEqual(
+            response,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {
+                    "code": -32002,
+                    "message": "Server not initialized",
+                },
+            },
+        )
+
+    def test_rejects_non_object_json_rpc_message(self) -> None:
+        response = self.server.handle_message([])
+
+        self.assertEqual(
+            response,
+            {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                },
+            },
+        )
 
     def test_null_id_request_still_gets_response(self) -> None:
         response = self.server.handle_message({"jsonrpc": "2.0", "id": None, "method": "ping"})
@@ -69,12 +122,15 @@ class ServerTests(unittest.TestCase):
                 "list_document_originals",
                 "list_news",
                 "get_document_content",
+                "search_section_contents",
+                "get_section_window",
                 "get_document_original",
                 "get_document_page_image",
                 "search_documents",
                 "search_news",
                 "list_skills",
                 "get_skill",
+                "diagnose_setup",
                 "list_cached_resources",
             ],
         )
@@ -93,6 +149,7 @@ class ServerTests(unittest.TestCase):
                 "skill://skills/document-content-retrieval.md",
                 "skill://skills/news-research.md",
                 "skill://skills/file-download.md",
+                "skill://skills/evidence-compression.md",
                 "skill://skills/evidence-answering.md",
             ],
         )
@@ -107,7 +164,7 @@ class ServerTests(unittest.TestCase):
         content = response["result"]["contents"][0]
         self.assertEqual(content["mimeType"], "application/json")
         payload = json.loads(content["text"])
-        self.assertEqual(len(payload["skills"]), 5)
+        self.assertEqual(len(payload["skills"]), 6)
         self.assertIn("resource_uri", payload["skills"][0])
         self.assertNotIn("## Workflow", content["text"])
 
@@ -128,10 +185,10 @@ class ServerTests(unittest.TestCase):
         self.assertIn("# Document Research Skill", content["text"])
         self.assertIn("switch to `document-content-retrieval`", content["text"])
 
-    def test_momonga_resources_list_and_read_cached_tool_results_without_api_replay(self) -> None:
+    def test_momonga_resources_list_and_read_cached_section_manifest_without_api_replay(self) -> None:
         api_client = FakeApiClient()
         with TemporaryDirectory() as temp_dir:
-            server = StdioMCPServer(
+            server = self._initialized_server(
                 Config(api_key="ms_test_xxx", cache_dir=Path(temp_dir)),
                 api_client=api_client,
             )
@@ -200,7 +257,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(list_response)
         assert list_response is not None
-        payload = list_response["result"]["structuredContent"]
+        payload = json.loads(list_response["result"]["content"][0]["text"])
         resource_uris = {resource["uri"] for resource in payload["resources"]}
         self.assertNotIn("momonga://documents/doc_123/toc", resource_uris)
         self.assertIn("momonga://documents/doc_123/sections/sec_1", resource_uris)
@@ -208,7 +265,15 @@ class ServerTests(unittest.TestCase):
         assert read_response is not None
         content = read_response["result"]["contents"][0]
         self.assertEqual(content["mimeType"], "application/json")
-        self.assertEqual(json.loads(content["text"])["content"], "body")
+        read_payload = json.loads(content["text"])
+        self.assertEqual(read_payload["document_id"], "doc_123")
+        self.assertEqual(read_payload["section_id"], "sec_1")
+        self.assertEqual(read_payload["section_title"], "Risk")
+        self.assertEqual(read_payload["character_count"], 4)
+        self.assertTrue(read_payload["content_available_in_cache"])
+        self.assertEqual(read_payload["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
+        self.assertIn("get_section_window", read_payload["read_policy"])
+        self.assertNotIn("content", read_payload)
         self.assertEqual(api_client.calls, calls_before_read)
 
     def test_prompts_list_and_get_representative_prompt(self) -> None:
@@ -221,6 +286,7 @@ class ServerTests(unittest.TestCase):
             prompt_names,
             ["use_document_research", "use_news_research", "use_evidence_answering"],
         )
+        self.assertEqual(list_response["result"]["prompts"][0]["title"], "Use Document Research")
 
         get_response = self.server.handle_message(
             {
@@ -241,6 +307,56 @@ class ServerTests(unittest.TestCase):
         self.assertIn("Toyota", text)
         self.assertIn("risk factors", text)
 
+    def test_prompts_get_rejects_missing_required_argument(self) -> None:
+        response = self.server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "prompts/get",
+                "params": {
+                    "name": "use_document_research",
+                    "arguments": {"target": "Toyota"},
+                },
+            }
+        )
+
+        self.assertEqual(
+            response,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "error": {
+                    "code": -32602,
+                    "message": "theme is required",
+                },
+            },
+        )
+
+    def test_prompts_get_rejects_unknown_arguments(self) -> None:
+        response = self.server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "prompts/get",
+                "params": {
+                    "name": "use_news_research",
+                    "arguments": {"theme": "monetary policy", "ignored": "x"},
+                },
+            }
+        )
+
+        self.assertEqual(
+            response,
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "error": {
+                    "code": -32602,
+                    "message": "unknown prompt arguments: ignored",
+                },
+            },
+        )
+
     def test_tools_call_validates_required_arguments(self) -> None:
         response = self.server.handle_message(
             {
@@ -254,12 +370,34 @@ class ServerTests(unittest.TestCase):
         self.assertIsNotNone(response)
         assert response is not None
         self.assertTrue(response["result"]["isError"])
-        payload = response["result"]["structuredContent"]
-        self.assertIn("See structuredContent.", response["result"]["content"][0]["text"])
+        payload = json.loads(response["result"]["content"][0]["text"])
+        self.assertIn("invalid_request", response["result"]["content"][0]["text"])
         self.assertEqual(payload["error"]["code"], "invalid_request")
         self.assertIsNone(payload["error"]["status"])
         self.assertEqual(payload["error"]["message"], "document_id is required")
         self.assertEqual(payload["error"]["next_action"], "Fix the tool input and retry the request.")
+
+    def test_tools_call_unknown_tool_returns_json_rpc_error(self) -> None:
+        response = self.server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "missing_tool", "arguments": {}},
+            }
+        )
+
+        self.assertEqual(
+            response,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {
+                    "code": -32602,
+                    "message": "Unknown tool: missing_tool",
+                },
+            },
+        )
 
     def test_list_skills_helper(self) -> None:
         response = self.server.handle_message(
@@ -273,7 +411,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertNotIn("isError", response["result"])
         self.assertEqual(
             [skill["id"] for skill in payload["skills"]],
@@ -282,10 +420,56 @@ class ServerTests(unittest.TestCase):
                 "document-content-retrieval",
                 "news-research",
                 "file-download",
+                "evidence-compression",
                 "evidence-answering",
             ],
         )
         self.assertIn("triggers", payload["skills"][0])
+
+    def test_emit_json_line_writes_utf8_bytes_even_with_legacy_text_wrapper(self) -> None:
+        server = self._initialized_server(Config(api_key="ms_test_xxx"))
+        response = server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "list_skills", "arguments": {}},
+            }
+        )
+        assert response is not None
+
+        output_buffer = BytesIO()
+        output_stream = TextIOWrapper(output_buffer, encoding="cp932")
+        _emit_json_line(output_stream, response)
+        parsed = json.loads(output_buffer.getvalue().decode("utf-8"))
+        payload = json.loads(parsed["result"]["content"][0]["text"])
+        self.assertIn("開示", payload["skills"][0]["triggers"])
+
+    def test_evidence_compression_skill_resource(self) -> None:
+        index_response = self.server.handle_message(
+            {"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://index.json"}}
+        )
+        self.assertIsNotNone(index_response)
+        assert index_response is not None
+        index_payload = json.loads(index_response["result"]["contents"][0]["text"])
+        skill = next(item for item in index_payload["skills"] if item["id"] == "evidence-compression")
+        self.assertEqual(skill["recommended_first_tools"], ["search_section_contents", "get_section_window"])
+
+        detail_response = self.server.handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "resources/read",
+                "params": {"uri": "skill://skills/evidence-compression.md"},
+            }
+        )
+        self.assertIsNotNone(detail_response)
+        assert detail_response is not None
+        content = detail_response["result"]["contents"][0]
+        self.assertEqual(content["mimeType"], "text/markdown")
+        self.assertIn("# Evidence Compression Skill", content["text"])
+        self.assertIn("evidence_notes", content["text"])
+        self.assertIn("source_resource_uri", content["text"])
 
     def test_get_skill_helper(self) -> None:
         response = self.server.handle_message(
@@ -299,13 +483,13 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertEqual(payload["id"], "news-research")
         self.assertIn("# News Research Skill", payload["content"])
 
     def test_search_issuers_also_requires_skill_index_first(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         response = server.handle_message(
             {
@@ -318,14 +502,14 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])
 
     def test_research_tool_requires_skill_index_first(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         response = server.handle_message(
             {
@@ -338,7 +522,7 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         next_action = payload["error"]["next_action"]
@@ -350,7 +534,7 @@ class ServerTests(unittest.TestCase):
 
     def test_list_skills_unlocks_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message(
             {
@@ -376,7 +560,7 @@ class ServerTests(unittest.TestCase):
 
     def test_reading_skill_index_resource_unlocks_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://index.json"}})
         response = server.handle_message(
@@ -395,7 +579,7 @@ class ServerTests(unittest.TestCase):
 
     def test_reading_skill_detail_resource_unlocks_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message(
             {
@@ -421,7 +605,7 @@ class ServerTests(unittest.TestCase):
 
     def test_reading_unknown_resource_does_not_unlock_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://unknown.md"}})
         response = server.handle_message(
@@ -435,14 +619,14 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])
 
     def test_get_skill_unlocks_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message(
             {
@@ -468,7 +652,7 @@ class ServerTests(unittest.TestCase):
 
     def test_failed_get_skill_does_not_unlock_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message(
             {
@@ -489,14 +673,14 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])
 
     def test_launching_prompt_unlocks_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message(
             {
@@ -525,7 +709,7 @@ class ServerTests(unittest.TestCase):
 
     def test_failed_prompt_get_does_not_unlock_research_tools(self) -> None:
         api_client = FakeApiClient()
-        server = StdioMCPServer(Config(api_key="ms_test_xxx"), api_client=api_client)
+        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
 
         server.handle_message(
             {
@@ -546,10 +730,93 @@ class ServerTests(unittest.TestCase):
 
         self.assertIsNotNone(response)
         assert response is not None
-        payload = response["result"]["structuredContent"]
+        payload = json.loads(response["result"]["content"][0]["text"])
         self.assertTrue(response["result"]["isError"])
         self.assertEqual(payload["error"]["code"], "skill_index_required")
         self.assertEqual(api_client.calls, [])
+
+
+class ServerLoopTests(unittest.TestCase):
+    def _serve(self, payloads: str) -> list[dict[str, object]]:
+        input_stream = StringIO(payloads)
+        output_stream = StringIO()
+        server = StdioMCPServer(
+            Config(api_key="ms_test_xxx"),
+            input_stream=input_stream,
+            output_stream=output_stream,
+        )
+        server.serve_forever()
+        return [json.loads(line) for line in output_stream.getvalue().splitlines() if line.strip()]
+
+    def test_serve_forever_processes_requests_and_skips_blank_lines(self) -> None:
+        payloads = "\n   \n" + json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\n"
+
+        responses = self._serve(payloads)
+
+        self.assertEqual(responses, [{"jsonrpc": "2.0", "id": 1, "result": {}}])
+
+    def test_serve_forever_reports_parse_error_for_invalid_json(self) -> None:
+        responses = self._serve("not-json\n")
+
+        self.assertEqual(
+            responses,
+            [
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32700, "message": "Parse error"},
+                }
+            ],
+        )
+
+    def test_serve_forever_reports_internal_error_when_handler_raises(self) -> None:
+        input_stream = StringIO(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\n")
+        output_stream = StringIO()
+        server = StdioMCPServer(
+            Config(api_key="ms_test_xxx"),
+            input_stream=input_stream,
+            output_stream=output_stream,
+        )
+
+        with patch.object(server, "handle_message", side_effect=RuntimeError("boom")):
+            server.serve_forever()
+
+        response = json.loads(output_stream.getvalue())
+        self.assertEqual(response, {"jsonrpc": "2.0", "id": None, "error": {"code": -32603, "message": "Internal error"}})
+
+
+class ServerMainTests(unittest.TestCase):
+    def test_main_returns_config_error_exit_code(self) -> None:
+        with (
+            patch("momonga_search_mcp.server.load_dotenv"),
+            patch("momonga_search_mcp.server.Config.from_env", side_effect=ConfigError("missing api key")),
+        ):
+            exit_code = main()
+
+        self.assertEqual(exit_code, 78)
+
+    def test_main_serves_until_stream_closes(self) -> None:
+        served: dict[str, object] = {}
+
+        class StubServer:
+            def __init__(self, config: Config) -> None:
+                served["config"] = config
+
+            def serve_forever(self) -> None:
+                served["served"] = True
+
+        with (
+            patch("momonga_search_mcp.server.load_dotenv"),
+            patch("momonga_search_mcp.server.Config.from_env", return_value=Config(api_key="ms_test_xxx")),
+            patch("momonga_search_mcp.server.configure_logging"),
+            patch("momonga_search_mcp.server.configure_stdio_encoding") as configure_stdio,
+            patch("momonga_search_mcp.server.StdioMCPServer", StubServer),
+        ):
+            exit_code = main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(served["served"])
+        configure_stdio.assert_called_once_with()
 
 
 if __name__ == "__main__":

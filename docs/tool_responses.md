@@ -9,31 +9,31 @@ MCP は Momonga Search API のレスポンスを常にそのまま返すわけ�
 - 根拠や取得対象へ戻るための field は残す
 - モデルの判断に通常不要な API metadata は落とす
 
-すべての full tool response は、MCP `structuredContent` に JSON object として入ります。`content[].text` はコンテキスト圧迫を避けるため短いsummaryだけを返します。`tools/list` は主要fieldの `outputSchema` を返します。
-
-`outputSchema` は Momonga Search API のレスポンススキーマではなく、MCP tool response のスキーマです。このMCPでは、tool response のトップレベル主要fieldを契約として示します。一方で、`results[]`、`toc[]`、`content_sections[]`、`references[]` など一部のネストした構造は Momonga Search API の構造を採用しているため、後方互換なfield追加に備えて緩く扱い、未知fieldを許容します。厳密な型生成やバリデーションよりも、LLM / Agent とMCPクライアントが主要な返り値を把握できる自己記述性を優先します。
+すべての full tool response は、Claude Desktop互換性のため MCP `content[].text` に JSON text として入ります。`structuredContent` は返しません。`tools/list` は `outputSchema` を返しません。
 
 tool input parameter は、原則として対応エンドポイントの request parameter と同じ名前・意味にします。MCP 側だけで使う parameter や、API parameter 名と異なるものがある場合は各 tool の「パラメータ差分」に明記します。
 
 ## MCP tool / API endpoint 対応表
 
-MCPは、0-credit APIで候補・取得可否・取得単位を確認し、必要な本文・画像・元ファイルだけcredit APIで取得する前提でtoolを分けています。
+MCPは、候補・取得可否・取得単位の確認と、本文・画像・元ファイルの取得を分けています。
 
-| MCP tool | API endpoint | API credits | MCP cache | 主な注意 |
-| --- | --- | --- | --- | --- |
-| `search_issuers` | `GET /v1/issuers/search` | 0 | no | issuer特定に使います。 |
-| `list_documents` | `GET /v1/documents` | 0 | no | `security_codes` なしの場合は `timeline_since` が必須です。 |
-| `get_document_metadata` | `GET /v1/documents/{document_id}` | 0 | no | `content_status` や取得可否の確認に使います。 |
-| `get_document_toc` | `GET /v1/documents/{document_id}/toc` | 0 | yes | `content_status=ready` の文書で、section IDと取得単位を確認します。 |
-| `list_document_page_images` | `GET /v1/documents/{document_id}/page-images` | 0 | no | page image取得前に利用可能pageを確認します。 |
-| `list_document_originals` | `GET /v1/documents/{document_id}/originals` | 0 | no | original file取得前に `original_id` を確認します。 |
-| `list_news` | `GET /v1/news` | 1/API call | no | newsは記事全文ではなく `statement` + `references[]` です。 |
-| `get_document_content` | `GET /v1/documents/{document_id}/content` | 2/4/8/API call | yes | API実消費は本文量で変わります。MCP側は `x-quota-compute-remaining` 差分から実値を推定し、取れない場合は最大8 creditsとして保守的に会計します。 |
-| `search_documents` | `POST /v1/search/documents` | 1/API call | no | 検索結果は候補です。必要なsection本文は `get_document_content` で取得します。 |
-| `search_news` | `POST /v1/search/news` | 1/API call | no | documents検索とは統合rankingしません。 |
-| `get_document_page_image` | `GET /v1/documents/{document_id}/pages/{page_number}/image` | 1/page | yes | `list_document_page_images` で確認後、必要pageだけ取得します。 |
-| `get_document_original` | `GET /v1/documents/{document_id}/originals/{original_id}` | 8/file | yes | `list_document_originals` で確認後、必要fileだけ取得します。 |
-| `list_cached_resources` | local cache index | 0 | read | cache済みresource URIを確認します。 |
+| MCP tool | API endpoint | MCP cache | 主な注意 |
+| --- | --- | --- | --- |
+| `search_issuers` | `GET /v1/issuers/search` | no | issuer特定に使います。 |
+| `list_documents` | `GET /v1/documents` | no | `security_codes` なしの場合は `timeline_since` が必須です。 |
+| `get_document_metadata` | `GET /v1/documents/{document_id}` | no | `content_status` や取得可否の確認に使います。 |
+| `get_document_toc` | `GET /v1/documents/{document_id}/toc` | yes | `content_status=ready` の文書で、section IDと取得単位を確認します。 |
+| `list_document_page_images` | `GET /v1/documents/{document_id}/page-images` | no | page image取得前に利用可能pageを確認します。 |
+| `list_document_originals` | `GET /v1/documents/{document_id}/originals` | no | original file取得前に `original_id` を確認します。 |
+| `list_news` | `GET /v1/news` | no | newsは記事全文ではなく `statement` + `references[]` です。 |
+| `get_document_content` | `GET /v1/documents/{document_id}/content` | yes | 小さいsectionだけ本文を返し、大きいsectionはcache保存後にmanifestを返します。 |
+| `search_section_contents` | local cache section search | read | cache済みsection内を検索し、短い抜粋とoffsetだけ返します。 |
+| `get_section_window` | local cache section window | read | cache済みsectionのoffset周辺だけを上限付きで返します。 |
+| `search_documents` | `POST /v1/search/documents` | no | 検索結果は候補です。必要なsection本文は `get_document_content` で取得します。 |
+| `search_news` | `POST /v1/search/news` | no | documents検索とは統合rankingしません。 |
+| `get_document_page_image` | `GET /v1/documents/{document_id}/pages/{page_number}/image` | yes | `list_document_page_images` で確認後、必要pageだけ取得します。 |
+| `get_document_original` | `GET /v1/documents/{document_id}/originals/{original_id}` | yes | `list_document_originals` で確認後、必要fileだけ取得します。 |
+| `list_cached_resources` | local cache index | read | cache済みresource URIを確認します。 |
 
 ## 金融・開示データの扱い
 
@@ -125,7 +125,7 @@ MCPは、0-credit APIで候補・取得可否・取得単位を確認し、必�
 | `published_at` | 文書の公表時刻として使うため。 |
 | `timeline_at` | 時系列で候補を選ぶため。 |
 | `content_status` | `get_document_toc` / `get_document_content` に進めるか判断するため。 |
-| `character_count` | 小さい文書の全文取得可否や、TOC取得前の本文量見積もりに使うため。 |
+| `character_count` | TOC取得前の本文量見積もりや、section selection の要否判断に使うため。 |
 | `reference_url` | `external_only` など本文取得できない文書で外部根拠へ進むため。 |
 | `next_cursor` | 続きの一覧取得に必要。 |
 
@@ -153,13 +153,22 @@ MCPは、0-credit APIで候補・取得可否・取得単位を確認し、必�
   "timeline_at": "2026-05-01T00:00:00Z",
   "content_status": "ready",
   "character_count": 9000,
-  "reference_url": "https://example.com/report.pdf"
+  "reference_url": "https://example.com/report.pdf",
+  "next_action": {
+    "status": "ready",
+    "recommended_tools": ["get_document_toc", "get_document_content"],
+    "argument_hints": {"document_id": "doc_123"}
+  }
 }
 ```
 
 ### 残す field
 
-`list_documents` と同じです。文書本文取得に進む判断へ直接使う field だけ残します。
+`list_documents` と同じです。
+
+### MCP が追加する field
+
+`next_action` は `content_status` に応じて次に使う tool や引数 hint を示す MCP helper field です。`content_status=ready` の場合は `get_document_toc` / `get_document_content`、`pending_release` の場合は待機、`external_only` の場合は外部参照確認へ誘導します。
 
 ### 落とす field
 
@@ -181,6 +190,16 @@ MCP は TOC payload を `document_id` 単位で cache します。`cache_hit` �
 {
   "ok": true,
   "document_id": "doc_123",
+  "toc_mode": "sections",
+  "path_prefix": [],
+  "max_depth": 2,
+  "include_sections": true,
+  "selection_policy": {
+    "mode": "auto",
+    "reason": "toc_is_small",
+    "max_direct_toc_sections": 50,
+    "selected_toc_entry_count": 1
+  },
   "toc": [
     {
       "section_id": "sec_1",
@@ -200,12 +219,25 @@ MCP は TOC payload を `document_id` 単位で cache します。`cache_hit` �
 | Field | 理由 |
 | --- | --- |
 | `document_id` | 後続 tool 呼び出しの対象文書を示す。 |
+| `toc_mode` | `sections` / `outline` / `subtree` の判別。section selector を直接使えるか、subtree取得が必要かを判断するため。 |
+| `path_prefix` | focused subtree 取得時に指定された heading path。 |
+| `max_depth` | outline 展開深度。 |
+| `include_sections` | section selector を含める指定だったかの確認。トップレベル呼び出しで `include_sections=true` の場合、`toc_mode` は `sections` になります。 |
+| `selection_policy` | TOCを直接返すかoutline化したかの判断理由と件数。 |
 | `toc` | 取得する section を選ぶための目次。 |
-| `toc[].section_id` | `get_document_content.section_ids` に渡す必須 selector。 |
-| `toc[].section_title` | section 選択用の短い表示名。 |
-| `toc[].heading_path` | section の階層文脈。 |
-| `toc[].character_count` | 大きすぎる section の取得を避けるための目安。 |
-| `toc[].page_number` | 図表・画像確認が必要な場合に page image へ進むための目安。 |
+| `toc[].section_id` | `toc_mode=sections` の場合に返ります。`get_document_content.section_ids` に渡す必須 selector。 |
+| `toc[].section_title` | `toc_mode=sections` の場合に返ります。section 選択用の短い表示名。 |
+| `toc[].heading_path` | `toc_mode=sections` の場合は section の階層文脈、`outline` / `subtree` の場合は outline node の heading path。 |
+| `toc[].character_count` | `toc_mode=sections` の場合に返ります。大きすぎる section の取得を避けるための目安。 |
+| `toc[].page_number` | `toc_mode=sections` の場合に返ります。図表・画像確認が必要な場合に page image へ進むための目安。 |
+| `toc[].heading_title` | `toc_mode=outline` / `subtree` の場合に返ります。outline node の表示名。 |
+| `toc[].section_count` | `toc_mode=outline` / `subtree` の場合に返ります。node 配下の section 数。 |
+| `toc[].total_character_count` | `toc_mode=outline` / `subtree` の場合に返ります。node 配下の概算文字数。 |
+| `toc[].page_range` | `toc_mode=outline` / `subtree` の場合に返ります。node 配下のページ範囲。 |
+| `toc[].has_children` | `toc_mode=outline` / `subtree` の場合に返ります。さらに下位 heading があるかどうか。 |
+| `toc[].children` | `toc_mode=outline` / `subtree` で depth 内に下位 node がある場合だけ返ります。 |
+| `toc[].sections` | `toc_mode=subtree` かつ `include_sections=true` の場合だけ返ります。中身は section selector entry です。トップレベル呼び出しでは `include_sections=true` により `toc_mode=sections` になるため、`toc_mode=outline` と `include_sections=true` の組み合わせでは返りません。 |
+| `next_action_template` | `toc_mode=outline` の場合だけ返ります。選んだ `heading_path` で再度 `get_document_toc` を呼ぶための hint。 |
 | `resource_uri` | cache 済み TOC を指すローカル resource ID。 |
 | `cache_hit` | API call を skip したかどうか。 |
 
@@ -279,13 +311,13 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 ### 落とす field
 
-`content_available`, `content_status`, `original_available`, `kind`, `role`, `size_bytes`, `sha256`, `credit_cost`
+`content_available`, `content_status`, `original_available`, `kind`, `role`, `size_bytes`, `sha256`
 
 ## `get_document_original`
 
 元ファイルを1件取得し、ローカル cache に保存します。
 
-この tool は file download を伴うため、`allow_file_download=true` が必須です。cache hit の場合は API の実体取得を行わず、credit も消費しません。
+この tool は file download を伴うため、`allow_file_download=true` が必須です。cache hit の場合は API の実体取得を行いません。
 
 実体レスポンスの `Content-Disposition` から `filename` が取れない場合、または `Content-Type` が `application/octet-stream` の場合だけ、`GET /v1/documents/{document_id}/originals` を確認して `filename` / `media_type` を補完します。
 
@@ -337,7 +369,7 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 ページ画像を1件取得し、ローカル cache に保存します。
 
-この tool は file download を伴うため、`allow_file_download=true` が必須です。cache hit の場合は API の実体取得を行わず、credit も消費しません。
+この tool は file download を伴うため、`allow_file_download=true` が必須です。cache hit の場合は API の実体取得を行いません。
 
 取得可能な page は、先に `list_document_page_images` で確認します。page image は API 仕様上 JPEG なので、MCP response の `media_type` は `image/jpeg` 固定です。
 
@@ -424,7 +456,7 @@ API response には document metadata も含まれますが、`get_document_toc`
 ## `get_document_content`
 
 指定した section の本文を取得します。API の `content_sections` を MCP response でも使います。
-小さい文書は `section_ids` を省略して全文取得できます。この場合、MCP response では全文を `section_id="__mcp_full_document__"` の synthetic section として返します。
+全文取得は `allow_full_document=true` を明示した場合だけ許可します。この場合、MCP response では全文を `section_id="__mcp_full_document__"` の synthetic section として返します。
 
 対応エンドポイント: `GET /v1/documents/{document_id}/content`
 
@@ -432,9 +464,9 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 | Tool parameter | API parameter | 理由 |
 | --- | --- | --- |
-| `section_ids` | `sections` | 任意。指定時は1〜5件。MCP tool 側では ID 配列であることを明確にするため。API 呼び出し時に `sections` query parameter に変換します。省略時は全文取得です。 |
-| `offset` | なし | `truncated=true` の section の続き取得に使う文字 offset。通常は省略します。指定時は `section_ids` を1件だけ渡します。全文取得の続きでは `section_ids` を省略したまま同じ `offset` を使います。 |
+| `section_ids` | `sections` | 任意。指定時は1〜5件。MCP tool 側では ID 配列であることを明確にするため。API 呼び出し時に `sections` query parameter に変換します。省略時は `allow_full_document=true` が必須です。 |
 | `return_content` | なし | MCP response に本文を含めるかを制御する MCP 専用 parameter。API から取得した本文は、返却有無に関係なく cache に保存します。 |
+| `allow_full_document` | なし | デフォルトは `false`。`section_ids` を省略して全文を1つの synthetic section として cache する場合に必須の MCP 専用 safety flag。 |
 
 ### 返り値
 
@@ -448,19 +480,19 @@ API response には document metadata も含まれますが、`get_document_toc`
       "section_title": "Risk Factors",
       "character_count": 1200,
       "content": "Risk Factors...",
-      "truncated": false,
-      "offset": 0,
+      "content_mode": "inline",
       "resource_uri": "momonga://documents/doc_123/sections/sec_1",
       "cached": false
     }
   ],
-  "max_characters": 10000,
-  "character_limit_reached": false,
-  "cache_hit": false
+  "max_inline_section_characters": 3000,
+  "max_inline_full_document_characters": 10000,
+  "cache_hit": false,
+  "requested_section_ids": ["sec_1"]
 }
 ```
 
-`section_ids` 省略時は、全文を synthetic section として返します。
+`allow_full_document=true` かつ `section_ids` 省略時は、全文を synthetic section として返します。
 
 ```json
 {
@@ -471,23 +503,22 @@ API response には document metadata も含まれますが、`get_document_toc`
       "section_id": "__mcp_full_document__",
       "section_title": "Full document",
       "character_count": 9000,
-      "content": "Full document body...",
-      "truncated": false,
-      "offset": 0,
+      "content": "Full document...",
+      "content_mode": "inline",
       "resource_uri": "momonga://documents/doc_123/sections/__mcp_full_document__",
       "cached": false
     }
   ],
-  "max_characters": 10000,
-  "character_limit_reached": false,
+  "max_inline_section_characters": 3000,
+  "max_inline_full_document_characters": 10000,
   "cache_hit": false
 }
 ```
 
 `return_content=false` の場合、`content_sections[].content` は返しません。取得した本文は返却有無に関係なく cache に保存します。
-MCP response に含める本文は、サーバ側固定上限の 10,000 文字で切り詰めます。
-`content_sections[].truncated=true` の場合は、その section に `next_offset` を返します。続きは同じ `document_id`、同じ単一 `section_id`、`offset=content_sections[].next_offset` で取得します。
-複数 section 取得時に tool call 全体の文字数上限へ達し、後続 section の本文を開始できない場合、その section は `content_omitted=true` / `omitted_reason=character_limit_reached` になり、`truncated` と `next_offset` は返しません。その section を読むには、同じ `document_id` とその単一 `section_id` で改めて取得します。
+MCP response に本文を inline で含めるのは、通常 section では `character_count` が `max_inline_section_characters` 以下の場合、full document synthetic section では `character_count` が `max_inline_full_document_characters` 以下の場合だけです。大きい section は `content_mode=manifest`、`content_available_in_cache=true`、`recommended_tools=["search_section_contents","get_section_window"]` を返し、本文は返しません。
+通常 section の1回の呼び出しで返りうる inline 本文量は、`max_inline_section_characters` と `section_ids` 上限により bounded です。`allow_full_document=true` の場合は synthetic section 1件だけを返し、`max_inline_full_document_characters` により bounded です。
+
 ### 残す field
 
 | Field | 理由 |
@@ -497,20 +528,101 @@ MCP response に含める本文は、サーバ側固定上限の 10,000 文字�
 | `content_sections[].section_title` | 取得した section の表示名。 |
 | `content_sections[].character_count` | 本文量の確認。 |
 | `content_sections[].content` | `return_content=true` の場合の本文。 |
-| `content_sections[].truncated` | `content` がサーバ側固定上限で切り詰められたかどうか。 |
-| `content_sections[].offset` | 返却した `content` の開始位置。 |
-| `content_sections[].next_offset` | `truncated=true` の場合、続き取得に使う offset。 |
-| `content_sections[].content_omitted` | tool call 全体の文字数上限により、この section の本文を返さなかったかどうか。 |
-| `content_sections[].omitted_reason` | `content_omitted=true` の理由。 |
+| `content_sections[].content_mode` | `inline` / `manifest` の返却モード。 |
+| `content_sections[].reason` | `content_mode=manifest` の判断理由。 |
+| `content_sections[].content_available_in_cache` | 本文が cache に保存済みで、search/window tool で読めるかどうか。 |
+| `content_sections[].recommended_tools` | 長い section を短い抜粋または bounded window で読むための次 tool。 |
+| `content_sections[].next_action` | `content_mode=manifest` の場合に返ります。`search_section_contents` と fallback の `get_section_window` へ進むための hint。 |
 | `content_sections[].resource_uri` | cache 済み section を指すローカル resource ID。 |
+| `content_sections[].source_resource_uri` | 根拠所在として使う resource URI。 |
 | `content_sections[].cached` | その section が今回 cache 由来かどうか。 |
-| `max_characters` | この tool call で返す本文文字数の MCP 側上限。 |
-| `character_limit_reached` | tool call 全体で文字数上限に達したかどうか。 |
+| `max_inline_section_characters` | section 本文を inline で返すか manifest にするかの閾値。 |
+| `max_inline_full_document_characters` | full document synthetic section を inline で返すか manifest にするかの閾値。 |
 | `cache_hit` | tool call 全体が API call を skip したかどうか。 |
+| `requested_section_ids` | 今回要求した section ID。`section_ids` 指定時だけ返ります。 |
+| `missing_section_ids` | 要求した section のうち、API response / cache に存在しなかった ID。存在する場合だけ返ります。 |
 
 ### 落とす field
 
 top-level `content`, `sections_returned`, `content_format`, document metadata 系。
+
+## `search_section_contents`
+
+cache済み section 本文を lexical 検索し、該当箇所の短い抜粋だけを返します。検索時は NFKC + casefold 正規化を使い、`offset` と `matched_text` は元本文基準で返します。API call は行いません。section が cache にない場合は、先に `get_document_content` で対象 `section_id` を取得します。
+
+対応: local cache
+
+### 返り値
+
+```json
+{
+  "ok": true,
+  "document_id": "doc_123",
+  "section_id": "sec_1",
+  "section_title": "Risk Factors",
+  "match_type": "lexical",
+  "query": "価格転嫁",
+  "context_chars": 150,
+  "max_matches": 15,
+  "matches": [
+    {
+      "offset": 1234,
+      "excerpt": "短い前後文脈...",
+      "matched_text": "価格転嫁"
+    }
+  ],
+  "matches_truncated": false,
+  "source_resource_uri": "momonga://documents/doc_123/sections/sec_1",
+  "cache_hit": true
+}
+```
+
+`max_matches` は固定上限 15 を示します。`matches_truncated=true` の場合、15件を超える候補があります。query を具体化して再検索します。
+
+```json
+{
+  "matches_truncated": true,
+  "next_action": {
+    "tool": "search_section_contents",
+    "reason": "too_many_matches",
+    "message": "Refine the query with more specific terms before reading windows.",
+    "argument_hints": {
+      "document_id": "doc_123",
+      "section_id": "sec_1",
+      "query": "More specific search terms for the needed evidence.",
+      "match_type": "lexical",
+      "context_chars": 150,
+      "max_matches": 15
+    }
+  }
+}
+```
+
+## `get_section_window`
+
+cache済み section 本文の指定 offset 周辺だけを返します。`search_section_contents.matches[].offset` で見つけた箇所の確認に使います。
+
+対応: local cache
+
+### 返り値
+
+```json
+{
+  "ok": true,
+  "document_id": "doc_123",
+  "section_id": "sec_1",
+  "section_title": "Risk Factors",
+  "offset": 1234,
+  "start_offset": 900,
+  "end_offset": 2400,
+  "actual_characters": 1500,
+  "max_characters": 1500,
+  "content": "指定offset周辺の本文...",
+  "truncated": true,
+  "source_resource_uri": "momonga://documents/doc_123/sections/sec_1",
+  "cache_hit": true
+}
+```
 
 ## `search_documents`
 
@@ -562,13 +674,15 @@ top-level `content`, `sections_returned`, `content_format`, document metadata �
 | `published_at` | 文書の公表時刻として使うため。 |
 | `timeline_at` | 時点の判断。 |
 | `content_status` | 本文取得に進めるか判断するため。 |
-| `character_count` | 小さい文書の全文取得可否や、本文量見積もりに使うため。 |
-| `reference_url` | `external_only` など本文取得できない文書で外部根拠へ進むため。 |
+| `character_count` | 本文量見積もりや、section selection の要否判断に使うため。 |
+| `reference_url` | `external_only` など本文取得できない文書で外部根拠へ進むため。存在する場合だけ返ります。 |
 | `matches[].section_id` | `get_document_content.section_ids` に渡す selector。 |
 | `matches[].section_title` | match 箇所の短い表示名。 |
+| `matches[].heading_path` | match section の階層文脈。存在する場合だけ返ります。 |
+| `matches[].character_count` | match section の本文量。存在する場合だけ返ります。 |
 | `matches[].score` | 検索結果の順位判断。 |
-| `matches[].snippet` | 本文取得前の関連性判断。 |
-| `matches[].page_number` | 必要なら page image 確認へ進むため。 |
+| `matches[].snippet` | 本文取得前の関連性判断。`include_snippet=true` の場合だけ返ります。 |
+| `matches[].page_number` | 必要なら page image 確認へ進むため。存在する場合だけ返ります。 |
 | `matches[].has_visual` | match 箇所に図表などの視覚情報があるかの判断。 |
 
 ### 落とす field
@@ -613,7 +727,7 @@ document metadata 系は `list_documents` と同じです。
 
 すべての tool は、API error や MCP 側 validation error をそのまま投げず、model-facing な JSON payload に正規化して返します。
 
-MCP の `tools/call` response では `isError=true` を付け、`structuredContent` に以下の JSON payload を入れます。`content[].text` は短いsummaryだけを返します。
+MCP の `tools/call` response では `isError=true` を付け、`content[].text` に以下の JSON payload を入れます。
 
 ### 返り値
 
@@ -655,7 +769,6 @@ API error payload のうち、上記以外の metadata、内部 trace、request 
 | Error | `next_action` |
 | --- | --- |
 | rate limit | `retry_after_seconds` を待ってから再試行する。 |
-| quota exceeded | user が quota / task scope を変えるまで credit-consuming tool を止める。 |
 | authentication error | API key 設定を確認する。 |
 | timeout | 短い backoff 後に一度だけ再試行し、続く場合は query / 件数を絞る。 |
 | content not available | 同じ content request を即時再試行せず、`content_status` を見て metadata / reference に切り替える。 |

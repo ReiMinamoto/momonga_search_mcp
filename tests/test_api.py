@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from io import BytesIO
+import ssl
 import unittest
 from unittest.mock import patch
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
-from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response
+from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, _ssl_context, api_error_response, probe_tls_connectivity
 from momonga_search_mcp.config import Config
 
 
@@ -46,12 +49,13 @@ class ApiClientTests(unittest.TestCase):
         self.assertEqual(captured["auth"], "Bearer ms_test_xxx")
         self.assertEqual(captured["timeout"], 7)
 
-    def test_default_transport_passes_timeout_as_keyword(self) -> None:
+    def test_default_transport_passes_timeout_and_ssl_context_as_keywords(self) -> None:
         captured: dict[str, object] = {}
 
-        def fake_urlopen(request: Request, *, timeout: float) -> FakeResponse:
+        def fake_urlopen(request: Request, *, timeout: float, context: object) -> FakeResponse:
             captured["url"] = request.full_url
             captured["timeout"] = timeout
+            captured["context"] = context
             return FakeResponse(b'{"ok":true}')
 
         client = MomongaApiClient(Config(api_key="ms_test_xxx", base_url="https://example.test/v1", api_timeout_seconds=9))
@@ -62,6 +66,22 @@ class ApiClientTests(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         self.assertEqual(captured["url"], "https://example.test/v1/documents")
         self.assertEqual(captured["timeout"], 9)
+        self.assertIs(captured["context"], client._ssl_context)
+
+    def test_ssl_context_uses_truststore(self) -> None:
+        with patch("momonga_search_mcp.api.truststore.SSLContext") as mock_ssl_context:
+            mock_ssl_context.return_value = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            context = _ssl_context()
+
+        mock_ssl_context.assert_called_once_with(ssl.PROTOCOL_TLS_CLIENT)
+        self.assertIsInstance(context, ssl.SSLContext)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+
+    def test_probe_tls_connectivity_rejects_non_https_base_url(self) -> None:
+        result = probe_tls_connectivity("http://example.test/v1")
+
+        self.assertEqual(result["ok"], False)
+        self.assertEqual(result["error"], "unsupported_scheme")
 
     def test_post_sends_json_body(self) -> None:
         captured: dict[str, object] = {}
@@ -78,24 +98,6 @@ class ApiClientTests(unittest.TestCase):
         self.assertEqual(result, {"results": []})
         self.assertEqual(captured["content_type"], "application/json")
         self.assertEqual(captured["data"], b'{"query":"\xe4\xbe\xa1\xe6\xa0\xbc\xe8\xbb\xa2\xe5\xab\x81","top_k":3}')
-
-    def test_get_with_usage_infers_compute_credits_from_quota_header_delta(self) -> None:
-        responses = [
-            FakeResponse(b'{"ok":true}', {"X-Quota-Compute-Remaining": "100"}),
-            FakeResponse(b'{"ok":true}', {"X-Quota-Compute-Remaining": "98"}),
-        ]
-
-        def transport(request: Request, timeout: float) -> FakeResponse:
-            return responses.pop(0)
-
-        client = MomongaApiClient(Config(api_key="ms_test_xxx"), transport)
-
-        first = client.get_with_usage("/documents")
-        second = client.get_with_usage("/documents/doc_1/content", {"sections": ["sec_1"]})
-
-        self.assertIsNone(first.inferred_compute_credits)
-        self.assertEqual(second.inferred_compute_credits, 2)
-        self.assertEqual(second.headers["x-quota-compute-remaining"], "98")
 
     def test_get_binary_returns_bytes_and_response_headers(self) -> None:
         captured: dict[str, object] = {}
@@ -178,6 +180,107 @@ class ApiClientTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, "request_timeout")
 
+    def test_maps_network_error(self) -> None:
+        def transport(request: Request, timeout: float) -> FakeResponse:
+            raise URLError("connection refused")
+
+        client = MomongaApiClient(Config(api_key="ms_test_xxx"), transport)
+
+        with self.assertRaises(MomongaApiError) as context:
+            client.get("/documents")
+
+        self.assertEqual(context.exception.code, "network_error")
+        self.assertEqual(context.exception.detail, "connection refused")
+
+    def test_get_binary_maps_http_error(self) -> None:
+        def transport(request: Request, timeout: float) -> FakeResponse:
+            raise HTTPError(
+                request.full_url,
+                404,
+                "Not Found",
+                {},
+                BytesIO(b'{"title":"Original missing","status":404,"code":"original_not_found"}'),
+            )
+
+        client = MomongaApiClient(Config(api_key="ms_test_xxx"), transport)
+
+        with self.assertRaises(MomongaApiError) as context:
+            client.get_binary("/documents/doc_1/originals/pdf")
+
+        self.assertEqual(context.exception.status, 404)
+        self.assertEqual(context.exception.code, "original_not_found")
+
+    def test_get_binary_maps_timeout(self) -> None:
+        def transport(request: Request, timeout: float) -> FakeResponse:
+            raise TimeoutError("timed out")
+
+        client = MomongaApiClient(Config(api_key="ms_test_xxx"), transport)
+
+        with self.assertRaises(MomongaApiError) as context:
+            client.get_binary("/documents/doc_1/pages/1/image")
+
+        self.assertEqual(context.exception.code, "request_timeout")
+
+    def test_get_binary_maps_network_error(self) -> None:
+        def transport(request: Request, timeout: float) -> FakeResponse:
+            raise URLError("connection reset")
+
+        client = MomongaApiClient(Config(api_key="ms_test_xxx"), transport)
+
+        with self.assertRaises(MomongaApiError) as context:
+            client.get_binary("/documents/doc_1/pages/1/image")
+
+        self.assertEqual(context.exception.code, "network_error")
+        self.assertEqual(context.exception.detail, "connection reset")
+
+    def test_error_code_defaults_when_payload_has_no_code(self) -> None:
+        cases = [
+            (401, "authentication_failed"),
+            (429, "rate_limited"),
+            (500, "http_500"),
+        ]
+        for status, expected_code in cases:
+            with self.subTest(status=status):
+
+                def transport(request: Request, timeout: float, status: int = status) -> FakeResponse:
+                    raise HTTPError(request.full_url, status, "Error", {}, BytesIO(b""))
+
+                client = MomongaApiClient(Config(api_key="ms_test_xxx"), transport)
+                with self.assertRaises(MomongaApiError) as context:
+                    client.get("/documents")
+
+                self.assertEqual(context.exception.code, expected_code)
+
+    def test_retry_after_http_date_header_is_converted_to_seconds(self) -> None:
+        retry_at = datetime.now(UTC) + timedelta(seconds=120)
+        header_value = format_datetime(retry_at)
+
+        def transport(request: Request, timeout: float) -> FakeResponse:
+            raise HTTPError(request.full_url, 503, "Unavailable", {"Retry-After": header_value}, BytesIO(b""))
+
+        client = MomongaApiClient(Config(api_key="ms_test_xxx"), transport)
+
+        with self.assertRaises(MomongaApiError) as context:
+            client.get("/documents")
+
+        self.assertIsNotNone(context.exception.retry_after_seconds)
+        assert context.exception.retry_after_seconds is not None
+        self.assertGreater(context.exception.retry_after_seconds, 60)
+        self.assertLessEqual(context.exception.retry_after_seconds, 120)
+
+    def test_default_next_action_covers_each_error_class(self) -> None:
+        cases = [
+            (MomongaApiError(status=401, code="authentication_failed", message="x"), "API key"),
+            (MomongaApiError(status=None, code="request_timeout", message="x"), "backoff"),
+            (MomongaApiError(status=409, code="content_not_available", message="x"), "content_status"),
+            (MomongaApiError(status=None, code="network_error", message="x"), "Retry once"),
+            (MomongaApiError(status=500, code="http_500", message="x"), "Do not repeat"),
+        ]
+        for error, expected_fragment in cases:
+            with self.subTest(code=error.code):
+                response = api_error_response(error)
+                self.assertIn(expected_fragment, response["error"]["next_action"])
+
     def test_api_error_response_includes_model_facing_details(self) -> None:
         error = MomongaApiError(
             status=409,
@@ -210,7 +313,7 @@ class ApiClientTests(unittest.TestCase):
         )
 
     def test_api_error_response_allows_tool_specific_next_action(self) -> None:
-        error = MomongaApiError(status=429, code="quota_exceeded", message="Quota exceeded")
+        error = MomongaApiError(status=429, code="rate_limit_exceeded", message="Rate limit exceeded")
 
         response = api_error_response(error, next_action="Ask the user whether to continue with cached results only.")
 

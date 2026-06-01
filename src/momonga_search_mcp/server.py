@@ -2,19 +2,16 @@
 
 from __future__ import annotations
 
-from importlib.metadata import PackageNotFoundError, version
 import json
 import logging
 import sys
 from typing import Any, TextIO
-from uuid import uuid4
 
 from dotenv import load_dotenv
 
 from momonga_search_mcp.api import MomongaApiClient
 from momonga_search_mcp.cache import CacheManager
-from momonga_search_mcp.config import Config, ConfigError
-from momonga_search_mcp.logging import configure_logging
+from momonga_search_mcp.config import MCP_PROTOCOL_VERSION, SERVER_NAME, Config, ConfigError, resolved_server_version
 from momonga_search_mcp.prompts import get_prompt, prompt_definitions
 from momonga_search_mcp.resources import is_momonga_resource_uri, read_momonga_resource
 from momonga_search_mcp.skills import read_skill_resource, skill_resources
@@ -22,9 +19,6 @@ from momonga_search_mcp.tools.definitions import tool_definitions
 from momonga_search_mcp.tools.handlers import call_tool
 
 JSONRPC_VERSION = "2.0"
-MCP_PROTOCOL_VERSION = "2025-11-25"
-SERVER_NAME = "momonga-search-mcp"
-SERVER_VERSION = "0.1.0"
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +37,8 @@ class StdioMCPServer:
         self.output_stream = sys.stdout if output_stream is None else output_stream
         self.api_client = MomongaApiClient(config) if api_client is None else api_client
         self.cache_manager = cache_manager
-        self.session_id = uuid4().hex
         self.skill_index_seen = False
+        self.initialized = False
 
     def serve_forever(self) -> None:
         logger.info(
@@ -68,12 +62,14 @@ class StdioMCPServer:
                 response = _error_response(None, -32603, "Internal error")
 
             if response is not None:
-                self.output_stream.write(json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n")
-                self.output_stream.flush()
+                _emit_json_line(self.output_stream, response)
 
         logger.info("stdio input closed; stopping %s", SERVER_NAME)
 
-    def handle_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
+    def handle_message(self, message: Any) -> dict[str, Any] | None:
+        if not isinstance(message, dict):
+            return _error_response(None, -32600, "Invalid Request")
+
         is_notification = "id" not in message
         request_id = message.get("id")
         method = message.get("method")
@@ -84,6 +80,7 @@ class StdioMCPServer:
         if is_notification:
             if method == "notifications/initialized":
                 logger.info("client initialized")
+                self.initialized = True
             else:
                 logger.debug("ignored notification method=%s", method)
             return None
@@ -92,16 +89,21 @@ class StdioMCPServer:
             return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": self._initialize_result()}
         if method == "ping":
             return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {}}
+        if not self.initialized:
+            return _error_response(request_id, -32002, "Server not initialized")
         if method == "tools/list":
             return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"tools": tool_definitions()}}
         if method == "tools/call":
             params = message.get("params")
+            if isinstance(params, dict) and isinstance(params.get("name"), str):
+                known_tool_names = {tool["name"] for tool in tool_definitions()}
+                if params["name"] not in known_tool_names:
+                    return _error_response(request_id, -32602, f"Unknown tool: {params['name']}")
             result = call_tool(
                 self.api_client,
                 params,
                 cache_manager_getter=self._cache_manager,
                 config=self.config,
-                session_id=self.session_id,
                 skill_index_seen=self.skill_index_seen,
             )
             if isinstance(params, dict) and params.get("name") in {"list_skills", "get_skill"} and not result.get("isError"):
@@ -126,16 +128,11 @@ class StdioMCPServer:
         return _error_response(request_id, -32601, f"Method not found: {method}")
 
     def _initialize_result(self) -> dict[str, Any]:
-        try:
-            server_version = version(SERVER_NAME)
-        except PackageNotFoundError:
-            server_version = SERVER_VERSION
-
         return {
             "protocolVersion": MCP_PROTOCOL_VERSION,
             "serverInfo": {
                 "name": SERVER_NAME,
-                "version": server_version,
+                "version": resolved_server_version(),
             },
             "capabilities": {
                 "tools": {"listChanged": False},
@@ -202,7 +199,7 @@ class StdioMCPServer:
 
     def _cache_manager(self) -> CacheManager:
         if self.cache_manager is None:
-            self.cache_manager = CacheManager(self.config.cache_dir)
+            self.cache_manager = CacheManager(self.config.cache_dir, max_bytes=self.config.cache_max_bytes)
         return self.cache_manager
 
 
@@ -217,6 +214,36 @@ def _error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
     }
 
 
+def _emit_json_line(output_stream: TextIO, payload: dict[str, Any]) -> None:
+    line = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+    buffer = getattr(output_stream, "buffer", None)
+    if buffer is not None:
+        buffer.write(line.encode("utf-8"))
+        buffer.flush()
+        return
+    output_stream.write(line)
+    output_stream.flush()
+
+
+def configure_stdio_encoding() -> None:
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8")
+        except (OSError, ValueError):
+            logger.debug("failed to reconfigure %s to utf-8", getattr(stream, "name", "stream"), exc_info=True)
+
+
+def configure_logging(level_name: str) -> None:
+    level = getattr(logging, level_name.upper(), logging.INFO)
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        level=level,
+    )
+
+
 def main() -> int:
     load_dotenv()
     try:
@@ -227,6 +254,7 @@ def main() -> int:
         return 78
 
     configure_logging(config.log_level)
+    configure_stdio_encoding()
     StdioMCPServer(config).serve_forever()
     return 0
 

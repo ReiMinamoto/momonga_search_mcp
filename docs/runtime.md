@@ -1,29 +1,14 @@
 # Runtime Behavior
 
-この文書は Momonga Search MCP の実行時仕様、内部利用量記録、cache方針をまとめます。tool response のfieldや API endpoint 対応表は `docs/tool_responses.md` を参照してください。
+この文書は Momonga Search MCP の実行時仕様、固定ガードレール、cache方針をまとめます。tool response のfieldや API endpoint 対応表は `docs/tool_responses.md` を参照してください。
 
 ## 対応範囲
 
 - MCP transport: stdio
 - MCP protocolVersion: `2025-11-25`
 - Python: `>=3.13`
-- tool response: full payloadは `structuredContent` にJSON objectとして返し、`content[].text` は短いsummaryだけを返します。
-- tool metadata: `tools/list` は `title`、`annotations`、主要fieldの `outputSchema` を返します。`outputSchema` はMCP tool responseのトップレベル契約を示すもので、API由来のネストした構造は後方互換性のため緩く扱います。
-
-## 内部利用量記録
-
-MCP側では、API利用量の観測用にtoolごとのcredit目安を内部記録します。この情報はtool responseには含めず、モデルの取得判断には使わせません。
-
-| tool | MCP側のcredit扱い |
-| --- | --- |
-| `list_news` | API callごとに1 credit |
-| `search_documents` | API callごとに1 credit |
-| `search_news` | API callごとに1 credit |
-| `get_document_content` | API callごとに2 / 4 / 8 credits。実消費を推定できない場合は最大8 creditsとして会計 |
-| `get_document_page_image` | cache missごとに1 credit |
-| `get_document_original` | cache missごとに8 credits |
-
-`get_document_content` はMomonga Search API側の実消費が本文量で 2 / 4 / 8 credits に変わります。MCP側では、APIレスポンスヘッダーの `x-quota-compute-remaining` 差分から実消費を推定できる場合は内部記録に実値を使います。直接の実消費fieldがないため、差分が取れない場合や 2 / 4 / 8 以外の差分になった場合は最大値の8 creditsとして記録します。
+- tool response: full payloadは `content[].text` にJSON textとして返します。Claude Desktop互換性のため `structuredContent` は返しません。
+- tool metadata: `tools/list` は `title` と `annotations` を返します。Claude Desktop互換性のため `outputSchema` は返しません。
 
 ## 固定ガードレール
 
@@ -33,13 +18,20 @@ MCP側では、巨大なtool responseを避けるために実行時上限を固�
 | --- | ---: |
 | list系toolの `limit` | `25` |
 | search系toolの `top_k` | `25` |
-| `get_document_content` 1回あたりの `section_ids` | `5`。小さい文書の全文取得時は省略可 |
-| `get_document_content` 1回あたりの本文返却文字数 | `10000` |
+| `get_document_toc` direct section count | `50`。超える場合は outline / subtree / aggregate を返す |
+| `get_document_content` 1回あたりの `section_ids` | `5`。省略時は `allow_full_document=true` が必須 |
+| `get_document_content` inline section 文字数 | `3000`。超える section は本文を返さず manifest を返す |
+| `get_document_content` inline full document 文字数 | `10000`。`allow_full_document=true` の synthetic section にだけ適用 |
+| `search_section_contents.context_chars` | default `150`、hard max `300` |
+| `search_section_contents` match count | `15`。16件目が存在する場合は `matches_truncated=true` |
+| `get_section_window.max_characters` | default `1500`、hard max `5000` |
 | Momonga Search APIへのHTTP request timeout | `15` 秒 |
 
-`get_document_content` が文字数上限に達した場合は、`content_sections[].next_offset` と同じ単一 `section_id` で続きを取得します。複数section指定時に後続sectionが `content_omitted=true` になった場合は、そのsectionだけを次の呼び出しで取得します。
+`get_document_content` は取得した本文を cache に保存しますが、inline で返すのは小さい section だけです。通常 section は `character_count` が 3000 を超えると、full document synthetic section は `character_count` が 10000 を超えると、`content_mode=manifest`、`content_available_in_cache=true`、`recommended_tools` を返し、本文は返しません。長い section の確認は、cache済み本文に対して `search_section_contents` で短い抜粋を探し、必要箇所だけ `get_section_window` で読みます。
 
 ## キャッシュ方針
+
+MCP cache は必須です。本文、TOC、page image、original file はローカル resource として保存し、LLM/Agent には必要なID、短い文脈、明示的に要求された本文範囲だけを返します。
 
 cache可否の基準は、取得対象が不変または実質不変かどうかです。
 
@@ -63,11 +55,13 @@ cache可否の基準は、取得対象が不変または実質不変かどうか
 | news list/search結果 | 最新性そのものが価値で、古い結果を返すリスクが高いため。 |
 | page image / original list結果 | 取得可否や一覧内容を都度APIで確認すべきため。 |
 
-デフォルトのキャッシュ保存先は `~/.cache/momonga-search-mcp` です。workspace内に置く場合は、誤commitを避けるため `.cache/` や `momonga-search-mcp-cache/` のようなignore済みdirectoryを指定してください。
+キャッシュ保存先は `MOMONGA_SEARCH_MCP_CACHE_DIR`、OS標準のuser cache directoryの順に解決します。Linuxでは `$XDG_CACHE_HOME/momonga-search-mcp` または `~/.cache/momonga-search-mcp`、macOSでは `~/Library/Caches/momonga-search-mcp`、Windowsでは `%LOCALAPPDATA%\\momonga-search-mcp\\Cache` が標準です。`MOMONGA_SEARCH_MCP_CACHE_DIR` は絶対pathで指定してください。
 
 ```sh
-export MOMONGA_MCP_CACHE_DIR=.cache/momonga-search-mcp
+export MOMONGA_SEARCH_MCP_CACHE_DIR=/home/user/.cache/momonga-search-mcp
 ```
+
+cache容量上限は `MOMONGA_SEARCH_MCP_CACHE_MAX_GB` で指定します。デフォルトは `1` GBです。serverはcache書き込み後に上限を超えている場合、今回書き込んだresourceを保護しつつ、古いcached resourceから上限の半分以下になるまで自動pruneします。
 
 キャッシュを削除する場合:
 
@@ -90,12 +84,4 @@ momonga-search-mcp-cache clear
 momonga-search-mcp-cache clear --document-id doc_123 --resource-type section
 ```
 
-cache hitを使わず常にAPIから取り直したい場合は、次のどちらかを指定します。
-
-```sh
-export MOMONGA_MCP_CACHE_ENABLED=false
-# または
-export MOMONGA_MCP_DISABLE_CACHE=1
-```
-
-このモードではTOC/本文のcache hitと保存を無効化します。page image / original file は明示的なdownload toolなので、file_path返却のため取得した実体ファイルは引き続き保存します。
+APIから取り直したい場合は、対象のcacheを削除してから再取得します。
