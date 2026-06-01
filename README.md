@@ -119,15 +119,34 @@ https://momongasearch.com/ でMomonga Search APIキーを発行し、`.env` の 
 動作確認:
 
 ```sh
-set -a
-. ./.env
-set +a
-PYTHONPATH=src python -m momonga_search_mcp.server
+uv run momonga-search-mcp
 ```
 
-上のコマンドはstdio serverとして待機します。手動確認を終える場合は `Ctrl-C` で停止してください。
+stdio serverとして待機します。手動確認を終える場合は `Ctrl-C` で停止してください。
 
 ## MCPクライアント登録
+
+### Claude Desktop
+
+Claude Desktopでは `claude_desktop_config.json` に登録します。`設定 → 開発者 → 設定を編集` から開けます。`"/absolute/path/to/momonga_search_mcp"` をこのrepositoryの絶対パスに書き換えてください。Windowsでは `\` を `/` に置き換えてください。
+
+```json
+{
+  "mcpServers": {
+    "momonga-search": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/momonga_search_mcp",
+        "run",
+        "momonga-search-mcp"
+      ]
+    }
+  }
+}
+```
+
+保存後、Claude Desktopを完全に再起動します。`設定 → 開発者` で `momonga-search` が接続済みか確認してください。
 
 ### Claude Code
 
@@ -149,31 +168,20 @@ Claude Codeでは、project共有設定としてrepository rootの `.mcp.json` �
 }
 ```
 
-CLIで登録する場合:
-
-```sh
-claude mcp add --scope project --transport stdio momonga-search -- \
-  uv --directory /absolute/path/to/momonga-search-mcp run momonga-search-mcp
-```
-
 登録後、Claude Code内で `/mcp` を実行して接続状態を確認します。project scopeの `.mcp.json` は共有設定としてversion管理できますが、Claude Codeは利用前に承認を求めます。
 
 ### Codex
 
-Codexでは `~/.codex/config.toml`、またはtrusted projectの `.codex/config.toml` に登録します。
+Codexでは `~/.codex/config.toml`、またはtrusted projectの `.codex/config.toml` に登録します。Windows では `cwd` のパスを `\` ではなく `/` 区切りで書いてください（TOML のエスケープでパースエラーになることがあります）。
 
 ```toml
 [mcp_servers.momonga-search]
 command = "uv"
 args = ["run", "momonga-search-mcp"]
-cwd = "/absolute/path/to/momonga-search-mcp"
+cwd = "/absolute/path/to/momonga_search_mcp"
 ```
 
-CLIで登録する場合:
-
-```sh
-codex mcp add momonga-search -- uv --directory /absolute/path/to/momonga-search-mcp run momonga-search-mcp
-```
+（Windows の例: `cwd = "C:/Users/<ユーザー名>/momonga_search_mcp"`）
 
 登録後、Codex TUI内で `/mcp` を実行して接続状態を確認します。Codex CLIとIDE extensionは同じ設定layerを参照します。
 
@@ -182,6 +190,12 @@ server起動時に repository directory の `.env` を読み込むため、上�
 `cwd` を指定できないMCP clientでは、`command` に絶対パスのwrapper scriptを指定するか、client側の起動directoryをこのrepositoryに合わせてください。`.env` を使わない運用では、client側の `env` で `MOMONGA_SEARCH_API_KEY` を渡してください。
 
 ## ローカル実行
+
+```sh
+uv run momonga-search-mcp
+```
+
+開発向けにmodule直接起動する場合:
 
 ```sh
 PYTHONPATH=src python -m momonga_search_mcp.server
