@@ -101,9 +101,9 @@ class ToolHandlerTests(unittest.TestCase):
         calls = [
             (
                 "search_documents",
-                {"query": "価格転嫁", "top_k": 3, "include_snippet": True},
+                {"query": "価格転嫁", "top_k": 3, "include_snippet": True, "latest_only": False},
                 "/search/documents",
-                {"query": "価格転嫁", "top_k": 3, "include_snippet": True},
+                {"query": "価格転嫁", "top_k": 3, "include_snippet": True, "latest_only": False},
             ),
             (
                 "list_news",

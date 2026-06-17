@@ -29,7 +29,7 @@ MCPは、候補・取得可否・取得単位の確認と、本文・画像・�
 | `get_document_content` | `GET /v1/documents/{document_id}/content` | yes | 小さいsectionだけ本文を返し、大きいsectionはcache保存後にmanifestを返します。 |
 | `search_section_contents` | local cache section search | read | cache済みsection内を検索し、短い抜粋とoffsetだけ返します。 |
 | `get_section_window` | local cache section window | read | cache済みsectionのoffset周辺だけを上限付きで返します。 |
-| `search_documents` | `POST /v1/search/documents` | no | 検索結果は候補です。必要なsection本文は `get_document_content` で取得します。 |
+| `search_documents` | `POST /v1/search/documents` | no | 検索結果は候補です。過年度検索では `latest_only=false` を `timeline_until` と併用します。 |
 | `search_news` | `POST /v1/search/news` | no | documents検索とは統合rankingしません。 |
 | `get_document_page_image` | `GET /v1/documents/{document_id}/pages/{page_number}/image` | yes | `list_document_page_images` で確認後、必要pageだけ取得します。 |
 | `get_document_original` | `GET /v1/documents/{document_id}/originals/{original_id}` | yes | `list_document_originals` で確認後、必要fileだけ取得します。 |
@@ -429,7 +429,6 @@ API response には document metadata も含まれますが、`get_document_toc`
       "statement": "Company announced...",
       "observed_at": "2026-05-01T00:00:00Z",
       "related_issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
-      "macro_tags": ["Monetary Policy"],
       "references": []
     }
   ],
@@ -445,7 +444,6 @@ API response には document metadata も含まれますが、`get_document_toc`
 | `statement` | モデルが読む本文。 |
 | `observed_at` | 時点の判断。 |
 | `related_issuers` | 関連 issuer の確認。 |
-| `macro_tags` | マクロ分類の判断。 |
 | `references` | 根拠文書や URL へ戻るため。 |
 | `next_cursor` | 続きの一覧取得に必要。 |
 
@@ -630,6 +628,10 @@ cache済み section 本文の指定 offset 周辺だけを返します。`search
 
 対応エンドポイント: `POST /v1/search/documents`
 
+### パラメータ差分
+
+`latest_only` は API の filter と同じです。省略時の API 既定値は `true` です。同一発行体・同一書類種別・同一会計期区分で新しい開示に置き換えられた過年度の有価証券報告書・決算短信の本文を検索する場合は、`latest_only=false` を `timeline_until` と合わせて指定します。
+
 ### 返り値
 
 ```json
@@ -708,7 +710,6 @@ document metadata 系は `list_documents` と同じです。
       "statement": "Company announced...",
       "observed_at": "2026-05-01T00:00:00Z",
       "related_issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
-      "macro_tags": ["Monetary Policy"],
       "references": []
     }
   ]

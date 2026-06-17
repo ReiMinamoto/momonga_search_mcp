@@ -21,16 +21,13 @@ DOCUMENT_FIELDS = (
     "reference_url",
 )
 
-LIST_NEWS_FIELDS = (
+NEWS_FIELDS = (
     "news_id",
     "statement",
     "observed_at",
     "related_issuers",
-    "macro_tags",
     "references",
 )
-
-SEARCH_NEWS_FIELDS = LIST_NEWS_FIELDS
 
 CONTENT_SECTION_FIELDS = ("section_id", "section_title", "character_count", "content")
 TOC_FIELDS = ("section_id", "section_title", "heading_path", "character_count", "page_number")
@@ -82,12 +79,10 @@ def success_response(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
             **_pick(payload, ("document_id",)),
             "originals": [_pick(item, ("original_id", "filename", "media_type")) for item in _list(payload, "originals")],
         }
-    if tool_name == "list_news":
-        return _results_response(payload, lambda item: _pick(item, LIST_NEWS_FIELDS))
+    if tool_name in {"list_news", "search_news"}:
+        return _results_response(payload, lambda item: _pick(item, NEWS_FIELDS))
     if tool_name == "search_documents":
         return _results_response(payload, _document_search_result)
-    if tool_name == "search_news":
-        return _results_response(payload, lambda item: _pick(item, SEARCH_NEWS_FIELDS))
     return {"ok": True, **payload}
 
 

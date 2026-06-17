@@ -34,6 +34,7 @@ Find the minimum necessary document evidence and preserve identifiers needed for
    - Use `search_documents` for topic discovery.
    - Prefer short topic terms or specific keywords. Use a longer natural-language query only when semantic concept matching is more useful than exact term discovery.
    - Use `lexical` for exact terms and `semantic` for concept lookup. If unsure, pass `match_type="semantic"` explicitly.
+   - For point-in-time or prior-period yuho/tanshin body searches, set `latest_only=false` together with `timeline_until`; the API default excludes older disclosures replaced by newer ones.
    - MCP runtime `top_k` limit is 25.
    - Results are returned with `matches[]` ordered by `score` (highest first). Pick the top 1-3 matches whose `section_title` / `snippet` clearly align with the question. Use up to 5 only when the user asks for comparison, coverage, or multiple distinct topics; do not blindly hand off every `section_id` to `document-content-retrieval`.
    - If `include_snippet=true`, treat snippets as discovery aids. Retrieve the section before using it as final evidence unless the user only asked for candidate locations.

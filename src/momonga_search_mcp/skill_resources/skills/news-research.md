@@ -6,20 +6,19 @@ Use this skill for recent updates, news statements, market events, macroeconomic
 
 ## Goal
 
-Find relevant Momonga news statements and preserve `news_id`, `statement`, `observed_at`, macro/security tags, related issuers, and `references[]`.
+Find relevant Momonga news statements and preserve `news_id`, `statement`, `observed_at`, related issuers, and `references[]`.
 
 ## Entry Rules
 
 - News responses are not cached at the API level in the MVP, so repeat calls may return updated results.
 - News results are normalized statements with references, not article bodies and not document sections.
-- `macro_tags` is a closed enum of English labels. Allowed values are exactly: `Economic Indicators`, `Monetary Policy`, `Fiscal Policy`, `Regulatory Policy`, `Trade & Geopolitical Events`, `Financial Stability`, `External Shocks`. Do not invent or translate values (e.g. `金融政策` or `monetary policy` will be rejected).
 
 ## Workflow
 
 1. Choose discovery mode.
-   - Use `list_news` for timeline-style browsing by security code, macro tag, or date range.
+   - Use `list_news` for timeline-style browsing by security code or date range.
    - Use `search_news` for semantic or keyword lookup.
-   - `list_news` requires at least one of `security_codes`, `macro_tags`, or `timeline_since`.
+   - `list_news` requires at least one of `security_codes` or `timeline_since`.
    - Use `timeline_since` and `timeline_until` as filters over news `observed_at`.
    - MCP runtime `limit` is 25 for `list_news`, and MCP runtime `top_k` is 25 for `search_news`.
    - Use `next_cursor` only with the same list filters from the previous response.
@@ -39,7 +38,7 @@ Find relevant Momonga news statements and preserve `news_id`, `statement`, `obse
    - Once relevant news statements are gathered, follow the `evidence-answering` skill before composing the answer.
    - State the date or timeline range used.
    - Distinguish reported news statements from your interpretation of market impact.
-   - Keep `related_issuers` and `macro_tags` when they explain why a result matched.
+   - Keep `related_issuers` when they explain why a result matched.
 
 ## Avoid
 
