@@ -19,6 +19,7 @@ from momonga_search_mcp.tools.definitions import (
     TOOL_ARGUMENT_ALTERNATIVES,
 )
 from momonga_search_mcp.tools.response import (
+    FULL_DOCUMENT_SECTION_ID,
     get_document_content_response,
     get_document_toc_response,
     success_response,
@@ -27,7 +28,6 @@ from momonga_search_mcp.tools.response import (
 
 DEFAULT_CONFIG = Config(api_key="ms_test_xxx")
 TOOL_SCHEMAS = {**DOCUMENT_LOOKUP_TOOLS, **RETRIEVAL_TOOLS, **SKILL_HELPER_TOOLS}
-FULL_DOCUMENT_SECTION_ID = "__mcp_full_document__"
 DEFAULT_SECTION_SEARCH_CONTEXT_CHARS = 150
 SECTION_SEARCH_MAX_MATCHES = 15
 DEFAULT_SECTION_WINDOW_CHARACTERS = 1500
@@ -142,7 +142,7 @@ def call_tool(
         elif name == "list_news":
             params = _select_arguments(
                 arguments,
-                ("security_codes", "macro_tags", "timeline_since", "timeline_until", "limit", "cursor"),
+                ("security_codes", "timeline_since", "timeline_until", "limit", "cursor"),
             )
             payload = api_client.get("/news", params)
         elif name == "get_document_content":
@@ -163,6 +163,7 @@ def call_tool(
                         "document_families",
                         "timeline_since",
                         "timeline_until",
+                        "latest_only",
                         "match_type",
                         "top_k",
                         "include_snippet",
@@ -175,7 +176,7 @@ def call_tool(
                 _require_arguments(
                     arguments,
                     ("query",),
-                    optional=("security_codes", "macro_tags", "timeline_since", "timeline_until", "match_type", "top_k"),
+                    optional=("security_codes", "timeline_since", "timeline_until", "match_type", "top_k"),
                 ),
             )
         elif name == "get_document_page_image":

@@ -21,7 +21,7 @@ Produce concise grounded answers that separate retrieved facts from interpretati
    - Evidence notes: prefer notes with `document_id`, `section_id`, `claim`, `supporting_excerpt`, `source_resource_uri`, and `confidence`.
    - Documents: keep `document_id`, `section_id`, `heading_path`, `resource_uri`, and `reference_url`.
    - Document sections: keep `section_title`, `character_count`, `content_mode`, `content_available_in_cache`, and `recommended_tools` when relevant.
-   - News: keep `news_id`, `statement`, `observed_at`, `related_issuers`, `macro_tags`, and `references[]`.
+   - News: keep `news_id`, `statement`, `observed_at`, `related_issuers`, and `references[]`.
    - Files: keep `document_id`, `file_path`, `resource_uri`, `media_type`, and page/original identifiers.
 
 2. Answer only from retrieved evidence.

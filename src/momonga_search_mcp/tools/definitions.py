@@ -4,16 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-MACRO_TAGS = [
-    "Economic Indicators",
-    "Monetary Policy",
-    "Fiscal Policy",
-    "Regulatory Policy",
-    "Trade & Geopolitical Events",
-    "Financial Stability",
-    "External Shocks",
-]
-
 LIST_LIMIT_SCHEMA = {
     "type": "integer",
     "minimum": 1,
@@ -27,6 +17,52 @@ TOP_K_SCHEMA = {
     "maximum": 25,
     "description": "Number of search results to return. MCP runtime limit is 25.",
 }
+
+SECURITY_CODES_SCHEMA = {
+    "type": "array",
+    "items": {"type": "string"},
+}
+
+TIMELINE_SINCE_SCHEMA = {
+    "type": "string",
+    "description": "Inclusive start date filter in JST, YYYY-MM-DD.",
+}
+
+TIMELINE_UNTIL_SCHEMA = {
+    "type": "string",
+    "description": "Inclusive end date filter in JST, YYYY-MM-DD.",
+}
+
+MATCH_TYPE_SCHEMA = {
+    "type": "string",
+    "enum": ["semantic", "lexical"],
+    "description": "Search mode. Use lexical for short keyword matching.",
+}
+
+DOCUMENT_TYPES_SCHEMA = {
+    "type": "array",
+    "items": {"type": "string", "enum": ["yuho", "tanshin", "other"]},
+}
+
+LATEST_ONLY_SCHEMA = {
+    "type": "boolean",
+    "description": (
+        "When false, include older yuho/tanshin documents replaced by newer disclosures. "
+        "API default is true. Use false together with timeline_until for point-in-time searches."
+    ),
+}
+
+SEARCH_FILTER_PROPERTIES = {
+    "security_codes": SECURITY_CODES_SCHEMA,
+    "timeline_since": TIMELINE_SINCE_SCHEMA,
+    "timeline_until": TIMELINE_UNTIL_SCHEMA,
+    "match_type": MATCH_TYPE_SCHEMA,
+}
+
+FILTER_ARGUMENT_ALTERNATIVES = [
+    {"required": ["security_codes"]},
+    {"required": ["timeline_since"]},
+]
 
 
 TOOL_TITLES = {
@@ -85,12 +121,8 @@ TOOL_ANNOTATIONS = {
 
 # OpenAI/Codex-compatible tool schemas cannot use top-level anyOf. Enforce these at runtime instead.
 TOOL_ARGUMENT_ALTERNATIVES: dict[str, list[dict[str, list[str]]]] = {
-    "list_documents": [{"required": ["security_codes"]}, {"required": ["timeline_since"]}],
-    "list_news": [
-        {"required": ["security_codes"]},
-        {"required": ["macro_tags"]},
-        {"required": ["timeline_since"]},
-    ],
+    "list_documents": FILTER_ARGUMENT_ALTERNATIVES,
+    "list_news": FILTER_ARGUMENT_ALTERNATIVES,
 }
 
 DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
@@ -115,20 +147,19 @@ DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
             "type": "object",
             "properties": {
                 "security_codes": {
-                    "type": "array",
-                    "items": {"type": "string"},
+                    **SECURITY_CODES_SCHEMA,
                     "description": "Security code filters. Required unless timeline_since is provided.",
                 },
-                "document_types": {"type": "array", "items": {"type": "string", "enum": ["yuho", "tanshin", "other"]}},
+                "document_types": DOCUMENT_TYPES_SCHEMA,
                 "document_families": {
                     "type": "array",
                     "items": {"type": "string", "enum": ["edinet_filing", "timely_disclosure", "ir_material"]},
                 },
                 "timeline_since": {
-                    "type": "string",
-                    "description": ("Inclusive start date filter in JST, YYYY-MM-DD. Required when security_codes is omitted."),
+                    **TIMELINE_SINCE_SCHEMA,
+                    "description": "Inclusive start date filter in JST, YYYY-MM-DD. Required when security_codes is omitted.",
                 },
-                "timeline_until": {"type": "string", "description": "Inclusive end date filter in JST, YYYY-MM-DD."},
+                "timeline_until": TIMELINE_UNTIL_SCHEMA,
                 "limit": LIST_LIMIT_SCHEMA,
                 "cursor": {
                     "type": "string",
@@ -195,30 +226,22 @@ DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
 
 RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
     "list_news": {
-        "description": (
-            "List news statements with references. Provide at least one of security_codes, macro_tags, or timeline_since."
-        ),
+        "description": "List news statements with references. Provide at least one of security_codes or timeline_since.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "security_codes": {
-                    "type": "array",
-                    "items": {"type": "string"},
+                    **SECURITY_CODES_SCHEMA,
                     "description": "Security code filters.",
                 },
-                "macro_tags": {
-                    "type": "array",
-                    "items": {"type": "string", "enum": MACRO_TAGS},
-                    "description": "Macro tag filters. At least one filter field is required.",
-                },
                 "timeline_since": {
-                    "type": "string",
+                    **TIMELINE_SINCE_SCHEMA,
                     "description": (
                         "Inclusive start date filter in JST, YYYY-MM-DD. "
-                        "At least one of security_codes, macro_tags, or timeline_since is required."
+                        "At least one of security_codes or timeline_since is required."
                     ),
                 },
-                "timeline_until": {"type": "string", "description": "Inclusive end date filter in JST, YYYY-MM-DD."},
+                "timeline_until": TIMELINE_UNTIL_SCHEMA,
                 "limit": LIST_LIMIT_SCHEMA,
                 "cursor": {
                     "type": "string",
@@ -346,19 +369,13 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
-                "security_codes": {"type": "array", "items": {"type": "string"}},
-                "document_types": {"type": "array", "items": {"type": "string", "enum": ["yuho", "tanshin", "other"]}},
+                **SEARCH_FILTER_PROPERTIES,
+                "document_types": DOCUMENT_TYPES_SCHEMA,
                 "document_families": {
                     "type": "array",
                     "items": {"type": "string", "enum": ["edinet_filing", "timely_disclosure"]},
                 },
-                "timeline_since": {"type": "string", "description": "Inclusive start date filter in JST, YYYY-MM-DD."},
-                "timeline_until": {"type": "string", "description": "Inclusive end date filter in JST, YYYY-MM-DD."},
-                "match_type": {
-                    "type": "string",
-                    "enum": ["semantic", "lexical"],
-                    "description": "Search mode. Use lexical for short keyword matching.",
-                },
+                "latest_only": LATEST_ONLY_SCHEMA,
                 "top_k": TOP_K_SCHEMA,
                 "include_snippet": {
                     "type": "boolean",
@@ -375,15 +392,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
-                "security_codes": {"type": "array", "items": {"type": "string"}},
-                "macro_tags": {"type": "array", "items": {"type": "string", "enum": MACRO_TAGS}},
-                "timeline_since": {"type": "string", "description": "Inclusive start date filter in JST, YYYY-MM-DD."},
-                "timeline_until": {"type": "string", "description": "Inclusive end date filter in JST, YYYY-MM-DD."},
-                "match_type": {
-                    "type": "string",
-                    "enum": ["semantic", "lexical"],
-                    "description": "Search mode. Use lexical for short keyword matching.",
-                },
+                **SEARCH_FILTER_PROPERTIES,
                 "top_k": TOP_K_SCHEMA,
             },
             "required": ["query"],

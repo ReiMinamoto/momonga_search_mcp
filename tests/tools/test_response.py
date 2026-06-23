@@ -255,7 +255,7 @@ class ToolResponseTests(unittest.TestCase):
             },
         )
 
-    def test_list_news_response_keeps_macro_tags_and_drops_score(self) -> None:
+    def test_list_news_response_drops_removed_fields_and_score(self) -> None:
         response = success_response(
             "list_news",
             {
@@ -285,7 +285,6 @@ class ToolResponseTests(unittest.TestCase):
                         "statement": "BOJ announced a policy change.",
                         "observed_at": "2026-05-01T00:00:00Z",
                         "related_issuers": [],
-                        "macro_tags": ["Monetary Policy"],
                         "references": [],
                     }
                 ],
@@ -293,7 +292,7 @@ class ToolResponseTests(unittest.TestCase):
             },
         )
 
-    def test_search_news_response_keeps_macro_tags_and_drops_score(self) -> None:
+    def test_search_news_response_drops_removed_fields_and_score(self) -> None:
         response = success_response(
             "search_news",
             {
@@ -321,7 +320,6 @@ class ToolResponseTests(unittest.TestCase):
                         "statement": "BOJ announced a policy change.",
                         "observed_at": "2026-05-01T00:00:00Z",
                         "related_issuers": [],
-                        "macro_tags": ["Monetary Policy"],
                         "references": [],
                     }
                 ],
