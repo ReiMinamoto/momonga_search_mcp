@@ -2,6 +2,8 @@
 
 Momonga Search MCP は、企業公表資料・経済ニュースを LLM/Agent が安全に検索・取得・根拠提示するための workflow MCP server です。汎用Web検索MCPではありません。
 
+> 初心者向けのセットアップ記事を用意しています。`uv` のインストールから Claude Desktop / Claude Code / Codex への登録まで手順を追って解説しているので、まずはこちらを参照してください: [【初心者向け】Momonga Search MCP を Claude / Codex で使えるようにしよう！](https://zenn.dev/ray000/articles/momonga-search-mcp-setup)
+
 ## 機能
 
 このMCPは、Momonga Search APIを単純にproxyするのではなく、LLM/Agentが企業公表資料・ニュースを安全に調査するためのworkflow基盤として提供します。
@@ -89,128 +91,4 @@ Prompts:
 
 ```sh
 export MOMONGA_SEARCH_API_KEY=ms_live_xxx
-```
-
-## インストール
-
-`uv` を使う前提のローカル実行手順です。
-
-`uv` が未インストールの場合:
-
-```sh
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-Windows PowerShell:
-
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-```sh
-git clone https://github.com/ReiMinamoto/momonga_search_mcp.git
-cd momonga_search_mcp
-uv sync --dev
-cp .env.example .env
-```
-
-https://momongasearch.com/ でMomonga Search APIキーを発行し、`.env` の `MOMONGA_SEARCH_API_KEY` を実際のAPIキーに置き換えます。APIキーはrepositoryへcommitしないでください。
-
-動作確認:
-
-```sh
-uv run momonga-search-mcp
-```
-
-stdio serverとして待機します。手動確認を終える場合は `Ctrl-C` で停止してください。
-
-## MCPクライアント登録
-
-### Claude Desktop
-
-Claude Desktopでは `claude_desktop_config.json` に登録します。`設定 → 開発者 → 設定を編集` から開けます。`"/absolute/path/to/momonga_search_mcp"` をこのrepositoryの絶対パスに書き換えてください。Windowsでは `\` を `/` に置き換えてください。
-
-```json
-{
-  "mcpServers": {
-    "momonga-search": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/momonga_search_mcp",
-        "run",
-        "momonga-search-mcp"
-      ]
-    }
-  }
-}
-```
-
-保存後、Claude Desktopを完全に再起動します。`設定 → 開発者` で `momonga-search` が接続済みか確認してください。
-
-### Claude Code
-
-Claude Codeでは、project共有設定としてrepository rootの `.mcp.json` に登録できます。
-
-```json
-{
-  "mcpServers": {
-    "momonga-search": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "${CLAUDE_PROJECT_DIR:-.}",
-        "run",
-        "momonga-search-mcp"
-      ]
-    }
-  }
-}
-```
-
-登録後、Claude Code内で `/mcp` を実行して接続状態を確認します。project scopeの `.mcp.json` は共有設定としてversion管理できますが、Claude Codeは利用前に承認を求めます。
-
-### Codex
-
-Codexでは `~/.codex/config.toml`、またはtrusted projectの `.codex/config.toml` に登録します。Windows では `cwd` のパスを `\` ではなく `/` 区切りで書いてください（TOML のエスケープでパースエラーになることがあります）。
-
-```toml
-[mcp_servers.momonga-search]
-command = "uv"
-args = ["run", "momonga-search-mcp"]
-cwd = "/absolute/path/to/momonga_search_mcp"
-```
-
-（Windows の例: `cwd = "C:/Users/<ユーザー名>/momonga_search_mcp"`）
-
-登録後、Codex TUI内で `/mcp` を実行して接続状態を確認します。Codex CLIとIDE extensionは同じ設定layerを参照します。
-
-server起動時に repository directory の `.env` を読み込むため、上記のようにrepository directoryで起動できる場合は、MCP client設定へAPIキーを書く必要はありません。
-
-`cwd` を指定できないMCP clientでは、`command` に絶対パスのwrapper scriptを指定するか、client側の起動directoryをこのrepositoryに合わせてください。`.env` を使わない運用では、client側の `env` で `MOMONGA_SEARCH_API_KEY` を渡してください。
-
-## ローカル実行
-
-```sh
-uv run momonga-search-mcp
-```
-
-開発向けにmodule直接起動する場合:
-
-```sh
-PYTHONPATH=src python -m momonga_search_mcp.server
-```
-
-uvがデフォルトのcache directoryに書き込めない環境では、次のようにworkspace内へcacheを向けます。
-
-```sh
-export UV_CACHE_DIR=.uv-cache
-```
-
-## チェック
-
-```sh
-UV_CACHE_DIR=.uv-cache uv run ruff check .
-UV_CACHE_DIR=.uv-cache uv run ruff format --check .
-UV_CACHE_DIR=.uv-cache uv run pytest
 ```
