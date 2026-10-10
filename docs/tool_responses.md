@@ -25,7 +25,7 @@ MCPは、候補・取得可否・取得単位の確認と、本文・画像・�
 | `get_document_toc` | `GET /v1/documents/{document_id}/toc` | yes | `content_status=ready` の文書で、section IDと取得単位を確認します。 |
 | `list_document_page_images` | `GET /v1/documents/{document_id}/page-images` | no | page image取得前に利用可能pageを確認します。 |
 | `list_document_originals` | `GET /v1/documents/{document_id}/originals` | no | original file取得前に `original_id` を確認します。 |
-| `list_news` | `GET /v1/news` | no | newsは記事全文ではなく `statement` + `references[]` です。 |
+| `list_news` | `GET /v1/news` | no | newsは `title` + `body` + `references[]` です。報道記事の本文ではありません。 |
 | `get_document_content` | `GET /v1/documents/{document_id}/content` | yes | 小さいsectionだけ本文を返し、大きいsectionはcache保存後にmanifestを返します。 |
 | `search_section_contents` | local cache section search | read | cache済みsection内を検索し、短い抜粋とoffsetだけ返します。 |
 | `get_section_window` | local cache section window | read | cache済みsectionのoffset周辺だけを上限付きで返します。 |
@@ -42,7 +42,7 @@ MCPは、候補・取得可否・取得単位の確認と、本文・画像・�
 - `published_at` がある場合は文書の公表時刻として扱います。`timeline_at` は時系列整理用の正規化時刻であり、公式公表時刻として扱わないでください。
 - `content_status=ready` は本文取得可能、`pending_release` は公開待ち、`external_only` はAPI本文ではなく外部参照先で確認する文書です。
 - `reference_url` は元ファイルの直接download URLではありません。元ファイル取得には `list_document_originals` / `get_document_original` を使います。
-- news系toolは記事全文ではなく、正規化された `statement` と `references[]` を返します。
+- news系toolは見出し `title`、1〜3文の本文 `body`、根拠の `references[]` を返します。報道記事の本文ではありません。
 - coverageには制約があります。例えばv1では `ir_material` がmetadata一覧に出ても、本文検索対象外の場合があります。
 
 ## `search_issuers`
@@ -426,9 +426,10 @@ API response には document metadata も含まれますが、`get_document_toc`
   "results": [
     {
       "news_id": "news_123",
-      "statement": "Company announced...",
+      "title": "Company, announcement headline",
+      "body": "Company announced...",
       "observed_at": "2026-05-01T00:00:00Z",
-      "related_issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
+      "related_issuers": [{"security_code": "8058", "name": "三菱商事株式会社", "link_basis": "explicit_code"}],
       "references": []
     }
   ],
@@ -441,7 +442,8 @@ API response には document metadata も含まれますが、`get_document_toc`
 | Field | 理由 |
 | --- | --- |
 | `news_id` | ニュース項目の識別。 |
-| `statement` | モデルが読む本文。 |
+| `title` | 表示用の見出し。ない場合は `null`。 |
+| `body` | モデルが読む本文。1〜3文。 |
 | `observed_at` | 時点の判断。 |
 | `related_issuers` | 関連 issuer の確認。 |
 | `references` | 根拠文書や URL へ戻るため。 |
@@ -449,7 +451,7 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 ### 落とす field
 
-`parent_news_id`
+`statement`（非推奨。`body` と同じ内容で、API から 2026-11-10 に削除予定）
 
 ## `get_document_content`
 
@@ -707,9 +709,10 @@ document metadata 系は `list_documents` と同じです。
   "results": [
     {
       "news_id": "news_123",
-      "statement": "Company announced...",
+      "title": "Company, announcement headline",
+      "body": "Company announced...",
       "observed_at": "2026-05-01T00:00:00Z",
-      "related_issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
+      "related_issuers": [{"security_code": "8058", "name": "三菱商事株式会社", "link_basis": "explicit_code"}],
       "references": []
     }
   ]
@@ -722,7 +725,7 @@ document metadata 系は `list_documents` と同じです。
 
 ### 落とす field
 
-`parent_news_id`, `score` など、検索結果の候補確認後に根拠へ戻るためには直接不要な field。
+`statement`（`list_news` と同じ理由）と `score`。`score` は検索結果の候補確認後に根拠へ戻るためには直接不要です。
 
 ## 共通 error response
 

@@ -255,20 +255,19 @@ class ToolResponseTests(unittest.TestCase):
             },
         )
 
-    def test_list_news_response_drops_removed_fields_and_score(self) -> None:
+    def test_list_news_response_returns_title_and_body_without_deprecated_statement(self) -> None:
         response = success_response(
             "list_news",
             {
                 "results": [
                     {
                         "news_id": "news_123",
-                        "parent_news_id": "dropped",
+                        "title": "BOJ, policy rate unchanged",
+                        "body": "BOJ announced a policy change.",
                         "statement": "BOJ announced a policy change.",
                         "observed_at": "2026-05-01T00:00:00Z",
                         "related_issuers": [],
-                        "macro_tags": ["Monetary Policy"],
-                        "references": [],
-                        "score": 8.4,
+                        "references": [{"type": "url", "url": "https://www.boj.or.jp/"}],
                     }
                 ],
                 "next_cursor": "cursor_1",
@@ -282,28 +281,30 @@ class ToolResponseTests(unittest.TestCase):
                 "results": [
                     {
                         "news_id": "news_123",
-                        "statement": "BOJ announced a policy change.",
+                        "title": "BOJ, policy rate unchanged",
+                        "body": "BOJ announced a policy change.",
                         "observed_at": "2026-05-01T00:00:00Z",
                         "related_issuers": [],
-                        "references": [],
+                        "references": [{"type": "url", "url": "https://www.boj.or.jp/"}],
                     }
                 ],
                 "next_cursor": "cursor_1",
             },
         )
 
-    def test_search_news_response_drops_removed_fields_and_score(self) -> None:
+    def test_search_news_response_returns_title_and_body_without_statement_and_score(self) -> None:
         response = success_response(
             "search_news",
             {
                 "results": [
                     {
                         "news_id": "news_123",
+                        "title": "BOJ, policy rate unchanged",
+                        "body": "BOJ announced a policy change.",
                         "statement": "BOJ announced a policy change.",
                         "observed_at": "2026-05-01T00:00:00Z",
                         "related_issuers": [],
-                        "macro_tags": ["Monetary Policy"],
-                        "references": [],
+                        "references": [{"type": "url", "url": "https://www.boj.or.jp/"}],
                         "score": 8.4,
                     }
                 ],
@@ -317,10 +318,11 @@ class ToolResponseTests(unittest.TestCase):
                 "results": [
                     {
                         "news_id": "news_123",
-                        "statement": "BOJ announced a policy change.",
+                        "title": "BOJ, policy rate unchanged",
+                        "body": "BOJ announced a policy change.",
                         "observed_at": "2026-05-01T00:00:00Z",
                         "related_issuers": [],
-                        "references": [],
+                        "references": [{"type": "url", "url": "https://www.boj.or.jp/"}],
                     }
                 ],
             },

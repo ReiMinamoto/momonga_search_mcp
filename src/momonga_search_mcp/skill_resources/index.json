@@ -21,7 +21,7 @@
     {
       "id": "news-research",
       "title": "News Research",
-      "description": "Research normalized news statements with references. Keep news separate from document search.",
+      "description": "Research news items (title and body) with references. Keep news separate from document search.",
       "resource_uri": "skill://skills/news-research.md",
       "triggers": ["ニュース", "news", "更新情報", "材料", "直近", "イベント"],
       "recommended_first_tools": ["list_news", "search_news"]
@@ -45,7 +45,7 @@
     {
       "id": "evidence-answering",
       "title": "Evidence Answering",
-      "description": "Produce grounded answers from already-retrieved document sections, news statements, files, or cached resources. Only enter this skill after a retrieval skill has run.",
+      "description": "Produce grounded answers from already-retrieved document sections, news items, files, or cached resources. Only enter this skill after a retrieval skill has run.",
       "resource_uri": "skill://skills/evidence-answering.md",
       "triggers": ["根拠付き回答", "evidence", "grounded answer", "cite", "引用"],
       "recommended_first_tools": []

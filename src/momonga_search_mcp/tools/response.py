@@ -23,7 +23,8 @@ DOCUMENT_FIELDS = (
 
 NEWS_FIELDS = (
     "news_id",
-    "statement",
+    "title",
+    "body",
     "observed_at",
     "related_issuers",
     "references",

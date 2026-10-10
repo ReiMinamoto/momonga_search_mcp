@@ -2,16 +2,16 @@
 
 ## Use When
 
-Use this skill for recent updates, news statements, market events, macroeconomic or policy updates, geopolitical events, and normalized update streams.
+Use this skill for recent updates, news items, market events, macroeconomic or policy updates, geopolitical events, and normalized update streams.
 
 ## Goal
 
-Find relevant Momonga news statements and preserve `news_id`, `statement`, `observed_at`, related issuers, and `references[]`.
+Find relevant Momonga news items and preserve `news_id`, `title`, `body`, `observed_at`, related issuers, and `references[]`.
 
 ## Entry Rules
 
 - News responses are not cached at the API level in the MVP, so repeat calls may return updated results.
-- News results are normalized statements with references, not article bodies and not document sections.
+- Each news item is a `title` and a one-to-three-sentence `body` written from the sources in `references[]`. It is not the text of a press article and not a document section.
 
 ## Workflow
 
@@ -24,25 +24,25 @@ Find relevant Momonga news statements and preserve `news_id`, `statement`, `obse
    - Use `next_cursor` only with the same list filters from the previous response.
 
 2. Keep news separate from documents.
-   - Treat news as normalized statements with references, not article bodies.
+   - Treat `body` as the full news text. There is no longer article behind it to fetch.
    - Do not combine document search and news search rankings into one list.
    - If the user asks for "latest" or "recent", state the concrete date range you queried.
 
 3. Preserve references.
    - Return `news_id` and `references[]`.
-   - When quoting or summarizing a news statement, explicitly keep the cited `news_id` with that statement.
+   - When quoting or summarizing a news `body`, explicitly keep the cited `news_id` with it.
    - Treat `references[]` as external reference URLs.
    - Do not imply that `references[]` were opened unless an external browsing or fetch workflow actually opened them.
 
 4. Switch to `evidence-answering` for the final response.
-   - Once relevant news statements are gathered, follow the `evidence-answering` skill before composing the answer.
+   - Once relevant news items are gathered, follow the `evidence-answering` skill before composing the answer.
    - State the date or timeline range used.
-   - Distinguish reported news statements from your interpretation of market impact.
+   - Distinguish reported news from your interpretation of market impact.
    - Keep `related_issuers` when they explain why a result matched.
 
 ## Avoid
 
 - Do not imply that `references[]` were opened unless an external browsing or fetch workflow actually opened them.
 - Do not use news tools as a substitute for securities report content.
-- Do not fetch document content unless the user asks for evidence beyond the news statement.
+- Do not fetch document content unless the user asks for evidence beyond the news body.
 - Do not report a news `observed_at` value as an official corporate publication timestamp.
