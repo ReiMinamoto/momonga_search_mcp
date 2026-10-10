@@ -38,7 +38,7 @@ Momonga Search MCP は、企業公表資料・経済ニュースを LLM/Agent �
 - `published_at` がある場合は文書の公表時刻として扱います。`timeline_at` は一覧・検索・時系列整理のための正規化時刻であり、公表時刻として扱わないでください。
 - `content_status=ready` は本文取得可能、`pending_release` は公開待ち、`external_only` はAPI本文ではなく外部参照先で確認する文書です。
 - `reference_url` は根拠確認用の参照URLであり、元ファイルの直接download URLとは限りません。元ファイルが必要な場合は `list_document_originals` と `get_document_original` を使ってください。
-- news系toolは記事全文ではなく、正規化された `statement` と `references[]` を返します。ニュース本文そのものとして引用しないでください。
+- news系toolは見出し `title`、1〜3文の本文 `body`、根拠の `references[]` を返します。`body` は根拠資料をもとに書かれたもので、報道記事の本文ではありません。
 - documents系toolとnews系toolは別の検索対象です。統合ランキングは行わず、必要な場合は最終回答で根拠種別を分けて扱ってください。
 - coverageには制約があります。例えばv1では `ir_material` がmetadata一覧に出ても、本文検索対象外の場合があります。
 

@@ -2,7 +2,7 @@
 
 ## Use When
 
-Use this skill when producing final answers from `evidence_notes`, retrieved document sections, news statements, references, downloaded metadata, or cached resource URIs. Enter this skill only after at least one retrieval or compression step has returned usable evidence in the current session. If no such result exists yet, switch to the matching retrieval skill first.
+Use this skill when producing final answers from `evidence_notes`, retrieved document sections, news items, references, downloaded metadata, or cached resource URIs. Enter this skill only after at least one retrieval or compression step has returned usable evidence in the current session. If no such result exists yet, switch to the matching retrieval skill first.
 
 ## Goal
 
@@ -21,7 +21,7 @@ Produce concise grounded answers that separate retrieved facts from interpretati
    - Evidence notes: prefer notes with `document_id`, `section_id`, `claim`, `supporting_excerpt`, `source_resource_uri`, and `confidence`.
    - Documents: keep `document_id`, `section_id`, `heading_path`, `resource_uri`, and `reference_url`.
    - Document sections: keep `section_title`, `character_count`, `content_mode`, `content_available_in_cache`, and `recommended_tools` when relevant.
-   - News: keep `news_id`, `statement`, `observed_at`, `related_issuers`, and `references[]`.
+   - News: keep `news_id`, `title`, `body`, `observed_at`, `related_issuers`, and `references[]`.
    - Files: keep `document_id`, `file_path`, `resource_uri`, `media_type`, and page/original identifiers.
 
 2. Answer only from retrieved evidence.

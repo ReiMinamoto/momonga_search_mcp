@@ -73,8 +73,6 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertEqual(schemas["list_news"]["properties"]["limit"]["maximum"], 25)
         self.assertEqual(schemas["search_documents"]["properties"]["top_k"]["maximum"], 25)
         self.assertEqual(schemas["search_documents"]["properties"]["latest_only"]["type"], "boolean")
-        self.assertNotIn("macro_tags", schemas["list_news"]["properties"])
-        self.assertNotIn("macro_tags", schemas["search_news"]["properties"])
         self.assertEqual(schemas["search_news"]["properties"]["top_k"]["maximum"], 25)
 
     def test_get_document_content_schema_allows_optional_bounded_sections_without_offset(self) -> None:

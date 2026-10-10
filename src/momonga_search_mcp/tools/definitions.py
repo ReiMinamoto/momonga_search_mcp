@@ -226,7 +226,7 @@ DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
 
 RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
     "list_news": {
-        "description": "List news statements with references. Provide at least one of security_codes or timeline_since.",
+        "description": "List news (title and body) with references. Provide at least one of security_codes or timeline_since.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -387,7 +387,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "search_news": {
-        "description": "Search news statements. Keep news separate from document search in the MVP.",
+        "description": "Search news (title and body). Keep news separate from document search in the MVP.",
         "inputSchema": {
             "type": "object",
             "properties": {

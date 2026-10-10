@@ -28,8 +28,8 @@ PROMPTS: dict[str, dict[str, Any]] = {
             "Read skill://skills/news-research.md first.\n"
             "Then research news updates about {theme}.\n"
             "Use list_news or search_news.\n"
-            "Keep news separate from documents and preserve statement, news_id, observed_at, related_issuers, and references[].\n"
-            "After gathering relevant news statements, follow skill://skills/evidence-answering.md before composing the answer."
+            "Keep news separate from documents and preserve title, body, news_id, observed_at, related_issuers, and references[].\n"
+            "After gathering relevant news items, follow skill://skills/evidence-answering.md before composing the answer."
         ),
     },
     "use_evidence_answering": {
