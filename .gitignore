@@ -12,6 +12,7 @@ wheels/
 
 # Environment variables
 .env
+secrets/
 
 # Momonga MCP runtime cache
 .cache/

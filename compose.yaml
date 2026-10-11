@@ -1,0 +1,49 @@
+services:
+  mcp:
+    image: momonga-search-mcp:local
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      MOMONGA_SEARCH_API_KEY: ${MOMONGA_SEARCH_API_KEY:?Set the API key only on the server}
+      MOMONGA_MCP_TOKEN_FILE: /run/momonga-tokens/client-tokens.json
+      MOMONGA_MCP_ALLOWED_HOSTS: ${MOMONGA_MCP_HOSTNAME:?Set the internal MCP hostname}
+      MOMONGA_MCP_ALLOWED_ORIGINS: ${MOMONGA_MCP_ALLOWED_ORIGINS:-}
+      MOMONGA_SEARCH_MCP_CACHE_MAX_GB: ${MOMONGA_SEARCH_MCP_CACHE_MAX_GB:-1}
+    volumes:
+      - cache:/var/cache/momonga
+      # Mount the directory, so atomic token-file replacement is visible immediately.
+      - client-tokens:/run/momonga-tokens:ro
+    expose:
+      - "8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+  tls:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      MOMONGA_MCP_HOSTNAME: ${MOMONGA_MCP_HOSTNAME:?Set the internal MCP hostname}
+    ports:
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+  token-admin:
+    image: momonga-search-mcp:local
+    profiles: [admin]
+    entrypoint: [momonga-search-mcp-token]
+    command: [--store, /run/momonga-tokens/client-tokens.json, list]
+    volumes:
+      - client-tokens:/run/momonga-tokens
+    read_only: true
+    tmpfs:
+      - /tmp
+volumes:
+  cache:
+  client-tokens:
+  caddy-data:
+  caddy-config:
