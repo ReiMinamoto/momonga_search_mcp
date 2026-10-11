@@ -4,7 +4,7 @@
 
 ## 対応範囲
 
-- MCP transport: stdio
+- MCP transport: stdio / Streamable HTTP（JSON応答、GETのSSEは405）。起動・トークン管理・VM配布手順は [README](../README.md#社内共用http) を参照。
 - MCP protocolVersion: `2025-11-25`
 - Python: `>=3.13`
 - tool response: full payloadは `content[].text` にJSON textとして返します。Claude Desktop互換性のため `structuredContent` は返しません。

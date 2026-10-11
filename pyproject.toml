@@ -1,7 +1,7 @@
 [project]
 name = "momonga-search-mcp"
 version = "1.0.0"
-description = "MCP stdio server for Momonga Search API document and news research workflows"
+description = "MCP stdio and Streamable HTTP server for Momonga Search API research workflows"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT"
@@ -10,11 +10,15 @@ dependencies = [
     "platformdirs>=4.5.1",
     "python-dotenv>=1.2.1",
     "truststore>=0.10",
+    "starlette>=0.48,<1",
+    "uvicorn>=0.35,<1",
+    "anyio>=4.10,<5",
 ]
 
 [project.scripts]
 momonga-search-mcp = "momonga_search_mcp.server:main"
 momonga-search-mcp-cache = "momonga_search_mcp.cli:main"
+momonga-search-mcp-token = "momonga_search_mcp.tokens:main"
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -47,6 +51,7 @@ skip-magic-trailing-comma = false
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28,<1",
     "pytest>=9.0.3",
     "ruff>=0.15.13",
 ]

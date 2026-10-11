@@ -8,7 +8,7 @@ Momonga Search MCP は、企業公表資料・経済ニュースを LLM/Agent �
 
 このMCPは、Momonga Search APIを単純にproxyするのではなく、LLM/Agentが企業公表資料・ニュースを安全に調査するためのworkflow基盤として提供します。
 
-- transportはstdioです。
+- transportは従来のstdioと、社内共用サーバー向けStreamable HTTPです。
 - documents系toolとnews系toolは分けて提供します。
 - documents/newsの統合検索や統合ランキングは行いません。
 - Server Instructions、Skill風Resources、Prompts、Helper Toolsで調査workflowを案内します。
@@ -25,7 +25,7 @@ Momonga Search MCP は、企業公表資料・経済ニュースを LLM/Agent �
 ## MCP対応範囲
 
 - 対応 protocol version: `2025-11-25`
-- transport: stdio
+- transport: stdio / Streamable HTTP（JSON応答、GETによるSSEは405）
 - tool response: full payloadは `content[].text` にJSON textとして返します。Claude Desktop互換性のため `structuredContent` は返しません。
 - tool metadata: `tools/list` で `title` と `annotations` を返します。Claude Desktop互換性のため `outputSchema` は返しません。
 
@@ -92,3 +92,68 @@ Prompts:
 ```sh
 export MOMONGA_SEARCH_API_KEY=ms_live_xxx
 ```
+
+## 端末ごと（stdio）
+
+各端末にインストールし、その端末の環境変数にMomonga APIキーを設定します。
+
+```sh
+uv tool install .
+momonga-search-mcp --transport stdio
+```
+
+MCPホストには `momonga-search-mcp` を起動コマンドとして登録し、必要な環境変数を渡します。引数を省略した起動も従来どおりstdioです。標準入力・標準出力はMCPのJSON-RPC専用、ログは標準エラーです。
+
+## 社内共用（HTTP）
+
+社内VM 1台で起動し、複数の利用者・エージェントから `https://<社内ホスト名>/mcp` に接続します。**Momonga APIキーはサーバーの環境変数だけに置き、端末には配りません。** 各端末には独立したMCP接続用Bearerトークンを発行します。同一契約で利用を許諾された利用者向けで、複数法人のキャッシュ分離は提供しません。
+
+### VMと利用者トークンの準備
+
+VMでリポジトリをチェックアウトし、サーバーだけで使う `.env` に次を設定します。実際のキー・トークンをGitに保存しないでください。
+
+```dotenv
+MOMONGA_SEARCH_API_KEY=<server-only Momonga API key>
+MOMONGA_MCP_HOSTNAME=mcp.example.internal
+```
+
+社内DNSでこの名前をVMへ向け、443への接続を許諾された社内利用者に限定します。Docker Compose配布物はTLS用CaddyとMCPを起動し、MCPの8000番を外部に公開しません。
+
+```sh
+docker compose build mcp
+docker compose run --rm token-admin --store /run/momonga-tokens/client-tokens.json issue --label department-a
+docker compose up -d mcp tls
+```
+
+`issue` のJSON出力に含まれる `token` はその1回だけ表示します。部署・利用者ごとに同じ発行コマンドを繰り返し、安全な経路で対象利用者へ渡します。保存ファイルにはトークンのSHA-256とラベル等だけを保存します。管理用・MCP用コンテナは同じUIDで、MCP側にはトークン保存ディレクトリを読み取り専用でマウントします。
+
+一覧・個別失効:
+
+```sh
+docker compose run --rm token-admin --store /run/momonga-tokens/client-tokens.json list
+docker compose run --rm token-admin --store /run/momonga-tokens/client-tokens.json revoke --token-id <id>
+```
+
+一覧には秘密値やハッシュを返しません。失効は新規・既存セッションの次のリクエストから反映され、他の利用者のトークンは有効です。処理中のリクエストを中断する機能はありません。トークン用volumeを維持して運用してください。
+
+### TLSとクライアント設定
+
+配布物のCaddyは社内向けCAでTLS証明書を発行します。公開CA証明書を取り出し、利用する端末・MCPクライアントの信頼ストアへ登録します。社内の既存TLS基盤を使う場合はCaddyfileの証明書設定をそれに合わせます。
+
+```sh
+docker compose cp tls:/data/caddy/pki/authorities/local/root.crt ./momonga-mcp-root.crt
+```
+
+Streamable HTTPと固定Bearerヘッダーに対応したMCPクライアントへ、URL `https://mcp.example.internal/mcp` とヘッダー `Authorization: Bearer <その利用者のMCPトークン>` を設定します。Momonga APIキーは指定しません。OAuthの自動登録・認可フローは提供しません。
+
+HTTPリクエストは `Accept: application/json, text/event-stream` とJSONを使います。初期化応答の `MCP-Session-Id` を後続リクエストに付け、`MCP-Protocol-Version: 2025-11-25` を送ります。通知は202・空本文、JSON-RPC要求にはJSONで応答し、GETでのSSEは405、DELETEは自分のセッションを終了します。セッションは利用者トークンに紐づき、1時間の無通信で失効します。上限は128セッションです。
+
+### キャッシュ・制限・運用
+
+- cache volumeを全セッションで共用。既存の `limit 25` / `top_k 25` / 通常section3,000字超はmanifestというガードレールは共通です（full document synthetic sectionは既存どおり10,000字）。tool定義、`content[].text` のJSON形式、Resources、Promptsはstdioと同じです。
+- 現在のキャッシュの書込みとpruneの競合を防ぐため、1 workerでtool処理を直列化します。複数クライアントは独立したセッションで接続できますが、遅いAPI処理は待ち時間になります。高負荷運用前に同時利用数で負荷確認してください。
+- `file_path` はサーバー内のパスです。端末のローカルパスではありません。画像・元ファイルもサーバーのキャッシュに保存され、追加のダウンロード配信APIは提供しません。
+- Originヘッダーがある要求は、`MOMONGA_MCP_ALLOWED_ORIGINS` に完全一致する場合のみ許可します（既定は空）。Originを送らないネイティブクライアントもBearer認証が必要です。Hostも `MOMONGA_MCP_ALLOWED_HOSTS` で制限し、Composeでは社内ホスト名に固定します。
+- アクセスログは無効で、キー・Bearer・要求本文をログに出しません。トークン保存ファイルが読めない場合は503で拒否します。
+
+VM以外で確認する場合は、サーバーに `MOMONGA_MCP_TOKEN_FILE`（絶対パス）、必要なら `MOMONGA_MCP_ALLOWED_HOSTS`（カンマ区切り）を設定し、`momonga-search-mcp --transport streamable-http --host 127.0.0.1 --port 8000` で起動します。トークン管理CLIはLinux/macOS向けです。HTTP transportの根拠: [MCP 2025-11-25 Transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)。

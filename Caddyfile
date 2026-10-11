@@ -1,0 +1,4 @@
+{$MOMONGA_MCP_HOSTNAME} {
+    tls internal
+    reverse_proxy mcp:8000
+}

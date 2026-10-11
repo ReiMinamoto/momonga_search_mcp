@@ -1,7 +1,8 @@
-"""Minimal stdio MCP server skeleton."""
+"""MCP dispatcher and stdio entry point; HTTP uses the same dispatcher."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import sys
@@ -244,7 +245,12 @@ def configure_logging(level_name: str) -> None:
     )
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog=SERVER_NAME)
+    parser.add_argument("--transport", choices=("stdio", "streamable-http"), default="stdio")
+    parser.add_argument("--host", default="127.0.0.1", help="HTTP listen address (default: loopback)")
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args(argv)
     load_dotenv()
     try:
         config = Config.from_env()
@@ -254,6 +260,14 @@ def main() -> int:
         return 78
 
     configure_logging(config.log_level)
+    if args.transport == "streamable-http":
+        from momonga_search_mcp.http_server import run_http
+
+        try:
+            return run_http(config, host=args.host, port=args.port)
+        except ConfigError as exc:
+            logger.error("configuration error: %s", exc)
+            return 78
     configure_stdio_encoding()
     StdioMCPServer(config).serve_forever()
     return 0

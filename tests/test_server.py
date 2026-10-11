@@ -791,7 +791,7 @@ class ServerMainTests(unittest.TestCase):
             patch("momonga_search_mcp.server.load_dotenv"),
             patch("momonga_search_mcp.server.Config.from_env", side_effect=ConfigError("missing api key")),
         ):
-            exit_code = main()
+            exit_code = main([])
 
         self.assertEqual(exit_code, 78)
 
@@ -812,7 +812,7 @@ class ServerMainTests(unittest.TestCase):
             patch("momonga_search_mcp.server.configure_stdio_encoding") as configure_stdio,
             patch("momonga_search_mcp.server.StdioMCPServer", StubServer),
         ):
-            exit_code = main()
+            exit_code = main([])
 
         self.assertEqual(exit_code, 0)
         self.assertTrue(served["served"])
