@@ -26,8 +26,6 @@ class ToolDefinitionTests(unittest.TestCase):
                 "get_document_page_image",
                 "search_documents",
                 "search_news",
-                "list_skills",
-                "get_skill",
                 "diagnose_setup",
                 "list_cached_resources",
             ],
@@ -124,11 +122,9 @@ class ToolDefinitionTests(unittest.TestCase):
             ["document_id", "original_id", "allow_file_download"],
         )
 
-    def test_skill_helper_schemas(self) -> None:
+    def test_helper_schemas(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
 
-        self.assertEqual(schemas["list_skills"]["properties"], {})
-        self.assertNotIn("required", schemas["list_skills"])
         self.assertEqual(schemas["diagnose_setup"]["properties"], {})
         self.assertNotIn("required", schemas["diagnose_setup"])
         self.assertEqual(schemas["list_cached_resources"]["properties"]["limit"]["maximum"], 25)
@@ -136,7 +132,6 @@ class ToolDefinitionTests(unittest.TestCase):
             schemas["list_cached_resources"]["properties"]["resource_type"]["enum"],
             ["toc", "section", "page", "original"],
         )
-        self.assertEqual(schemas["get_skill"]["required"], ["id"])
 
 
 if __name__ == "__main__":

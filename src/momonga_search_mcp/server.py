@@ -12,9 +12,7 @@ from dotenv import load_dotenv
 from momonga_search_mcp.api import MomongaApiClient
 from momonga_search_mcp.cache import CacheManager
 from momonga_search_mcp.config import MCP_PROTOCOL_VERSION, SERVER_NAME, Config, ConfigError, resolved_server_version
-from momonga_search_mcp.prompts import get_prompt, prompt_definitions
 from momonga_search_mcp.resources import is_momonga_resource_uri, read_momonga_resource
-from momonga_search_mcp.skills import read_skill_resource, skill_resources
 from momonga_search_mcp.tools.definitions import tool_definitions
 from momonga_search_mcp.tools.handlers import call_tool
 
@@ -37,7 +35,6 @@ class StdioMCPServer:
         self.output_stream = sys.stdout if output_stream is None else output_stream
         self.api_client = MomongaApiClient(config) if api_client is None else api_client
         self.cache_manager = cache_manager
-        self.skill_index_seen = False
         self.initialized = False
 
     def serve_forever(self) -> None:
@@ -104,27 +101,16 @@ class StdioMCPServer:
                 params,
                 cache_manager_getter=self._cache_manager,
                 config=self.config,
-                skill_index_seen=self.skill_index_seen,
             )
-            if isinstance(params, dict) and params.get("name") in {"list_skills", "get_skill"} and not result.get("isError"):
-                self.skill_index_seen = True
             return {
                 "jsonrpc": JSONRPC_VERSION,
                 "id": request_id,
                 "result": result,
             }
         if method == "resources/list":
-            return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"resources": skill_resources()}}
+            return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"resources": []}}
         if method == "resources/read":
             return self._read_resource_response(request_id, message.get("params"))
-        if method == "prompts/list":
-            return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": {"prompts": prompt_definitions()}}
-        if method == "prompts/get":
-            response = self._get_prompt_response(request_id, message.get("params"))
-            if "error" not in response:
-                self.skill_index_seen = True
-            return response
-
         return _error_response(request_id, -32601, f"Method not found: {method}")
 
     def _initialize_result(self) -> dict[str, Any]:
@@ -137,25 +123,8 @@ class StdioMCPServer:
             "capabilities": {
                 "tools": {"listChanged": False},
                 "resources": {"listChanged": False},
-                "prompts": {"listChanged": False},
             },
-            "instructions": (
-                "This MCP server provides Momonga Search API tools and workflow skills. "
-                "For every substantive research task, first read skill://index.json. If resource reads are unavailable, "
-                "call list_skills as the fallback. Treat skills as the default entry point for supported workflows. "
-                "If the index contains a skill that fits the task, follow that skill and read only its detail resource. "
-                "If the task later enters a more specific workflow, such as known document content retrieval or file "
-                "download, switch to the matching skill and read that skill detail resource before continuing. "
-                "Do not load all skill details by default. If no skill fits the task, compose the available tools directly "
-                "and preserve the same evidence and limit discipline. "
-                "Use document tools and news tools separately. Do not perform integrated document/news ranking in the MVP. "
-                "Before retrieving document content, check content_status, read toc when content_status=ready, inspect "
-                "section_id, heading_path, and character_count, and retrieve only necessary sections. Respect MCP-side "
-                "limits for result count, section count, character count, page images, and original files. "
-                "For page images and original files, never auto-download; require allow_file_download=true and return "
-                "file_path, resource_uri, and metadata only. Always preserve evidence identifiers: document_id, section_id, "
-                "news_id, reference_url, and references[]."
-            ),
+            "instructions": "Momonga Search document and news API tools. Tool descriptions specify API semantics and retrieval limits.",
         }
 
     def _read_resource_response(self, request_id: Any, params: Any) -> dict[str, Any]:
@@ -166,11 +135,9 @@ class StdioMCPServer:
             if is_momonga_resource_uri(uri):
                 text, mime_type = read_momonga_resource(self._cache_manager(), uri)
             else:
-                text, mime_type = read_skill_resource(uri)
+                raise ValueError(f"Unsupported resource URI: {uri}")
         except ValueError as exc:
             return _error_response(request_id, -32602, str(exc))
-        if not is_momonga_resource_uri(uri):
-            self.skill_index_seen = True
         return {
             "jsonrpc": JSONRPC_VERSION,
             "id": request_id,
@@ -184,18 +151,6 @@ class StdioMCPServer:
                 ]
             },
         }
-
-    def _get_prompt_response(self, request_id: Any, params: Any) -> dict[str, Any]:
-        if not isinstance(params, dict) or not isinstance(params.get("name"), str):
-            return _error_response(request_id, -32602, "prompts/get requires name")
-        arguments = params.get("arguments", {})
-        if not isinstance(arguments, dict):
-            return _error_response(request_id, -32602, "prompt arguments must be an object")
-        try:
-            result = get_prompt(params["name"], arguments)
-        except ValueError as exc:
-            return _error_response(request_id, -32602, str(exc))
-        return {"jsonrpc": JSONRPC_VERSION, "id": request_id, "result": result}
 
     def _cache_manager(self) -> CacheManager:
         if self.cache_manager is None:

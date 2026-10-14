@@ -36,7 +36,7 @@ TIMELINE_UNTIL_SCHEMA = {
 MATCH_TYPE_SCHEMA = {
     "type": "string",
     "enum": ["semantic", "lexical"],
-    "description": "Search mode. Use lexical for short keyword matching.",
+    "description": "Search mode (API default: semantic). Use a natural-language question for semantic, or short keywords for lexical.",
 }
 
 DOCUMENT_TYPES_SCHEMA = {
@@ -80,8 +80,6 @@ TOOL_TITLES = {
     "get_document_page_image": "Get Document Page Image",
     "search_documents": "Search Documents",
     "search_news": "Search News",
-    "list_skills": "List Skills",
-    "get_skill": "Get Skill",
     "diagnose_setup": "Diagnose Setup",
     "list_cached_resources": "List Cached Resources",
 }
@@ -113,8 +111,6 @@ TOOL_ANNOTATIONS = {
     "get_document_page_image": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
     "search_documents": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
     "search_news": OPEN_WORLD_READ_ONLY_ANNOTATIONS,
-    "list_skills": LOCAL_READ_ONLY_ANNOTATIONS,
-    "get_skill": LOCAL_READ_ONLY_ANNOTATIONS,
     "diagnose_setup": LOCAL_READ_ONLY_ANNOTATIONS,
     "list_cached_resources": LOCAL_READ_ONLY_ANNOTATIONS,
 }
@@ -140,8 +136,7 @@ DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
     },
     "list_documents": {
         "description": (
-            "List document summaries, newest first by timeline_at. "
-            "Provide security_codes or timeline_since (required when security_codes is omitted)."
+            "List document metadata by issuer, date and document type/family, newest first by timeline_at. This includes documents whose body is not indexed, pending_release/external_only documents, and IR materials (v1 metadata/external links only; no API body, originals or images). Use it to discover documents or check existence/availability when body search has no hits. Returns document_id, content_status, character_count and reference_url. Provide security_codes or timeline_since (required when security_codes is omitted)."
         ),
         "inputSchema": {
             "type": "object",
@@ -170,7 +165,7 @@ DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "get_document_metadata": {
-        "description": "Get document metadata and availability. Check content_status before content retrieval.",
+        "description": "Get metadata, content_status and document-level character_count for a document_id returned by listing/search. Do not construct or guess document IDs. ready permits body retrieval; pending_release is not yet available; external_only has no API body and requires the external reference, not retries. published_at is official; timeline_at can be inferred or observed (see timeline_basis/precision). reference_url is not a stable file download URL. Use get_document_content for ready document text.",
         "inputSchema": {
             "type": "object",
             "properties": {"document_id": {"type": "string"}},
@@ -205,7 +200,7 @@ DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "list_document_page_images": {
-        "description": "List page numbers available for image retrieval.",
+        "description": "List available page images with page_number, source_route and image_role. Not every PDF page is available. source_route=vision means VLM-transcribed text; text_layer means embedded text. image_role=ocr_fallback means text extraction failed; vlm_evidence does not imply a chart is present.",
         "inputSchema": {
             "type": "object",
             "properties": {"document_id": {"type": "string"}},
@@ -214,7 +209,7 @@ DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "list_document_originals": {
-        "description": "List original files available for retrieval.",
+        "description": "List available original files. Select by kind, media_type and role; download using the returned original_id. reference_url is not a stable original-file download URL.",
         "inputSchema": {
             "type": "object",
             "properties": {"document_id": {"type": "string"}},
@@ -226,7 +221,7 @@ DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
 
 RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
     "list_news": {
-        "description": "List news (title and body) with references. Provide at least one of security_codes or timeline_since.",
+        "description": "List news newest first by updated_at; date filters apply to updated_at. Revisions keep news_id and change updated_at. body is 1-3 sentences based on sources, not the detected article text. references contain URLs or document_id values. Provide security_codes or timeline_since.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -253,9 +248,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
     },
     "get_document_content": {
         "description": (
-            "Retrieve selected document sections, or cache the full document as one synthetic section only when intentional. "
-            "For section retrieval, use section IDs from get_document_toc or search_documents. "
-            "Small sections may be returned inline; large sections are cached and returned as manifests."
+            "Retrieve body text for a known document_id. Section IDs come from get_document_toc or search_documents. Omitting section_ids requires allow_full_document=true; full documents up to 10000 characters can be returned inline. For larger documents select needed sections, at most 5 per call. Sections up to 3000 characters are inline; larger sections return manifests after caching the body. Read them with search_section_contents/get_section_window. resource URIs identify evidence and resources/read returns manifests, not full body text. Content is cached even with return_content=false."
         ),
         "inputSchema": {
             "type": "object",
@@ -290,8 +283,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
     },
     "search_section_contents": {
         "description": (
-            "Search within one cached document section with NFKC/casefold normalization and return short excerpts with original offsets. "
-            "Call get_document_content first if the section is not cached."
+            "Search one cached section for a single literal substring, with NFKC/casefold normalization. This is contiguous text matching, not semantic search or independent matching of multiple keywords. Use a short term present in the source; returned excerpts and offsets support get_section_window. Call get_document_content first if the section is not cached."
         ),
         "inputSchema": {
             "type": "object",
@@ -338,7 +330,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "get_document_original": {
-        "description": "Download one original file to the local cache. Requires allow_file_download=true.",
+        "description": "Download an original_id returned by list_document_originals to the local cache. Requires allow_file_download=true.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -351,7 +343,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "get_document_page_image": {
-        "description": "Download one page image to the local cache. Requires allow_file_download=true.",
+        "description": "Download an available page_number from list_document_page_images or a search match with has_visual=true. has_visual indicates image availability, not VLM transcription. Requires allow_file_download=true.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -364,7 +356,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "search_documents": {
-        "description": "Search document content. Use short topic terms or evidence-focused questions.",
+        "description": "Search indexed document body text for topics/keywords; it is not a complete metadata or title search. Unindexed bodies and unreleased documents may be absent; v1 IR materials are never body-searchable or API-retrievable. Use list_documents for issuer/date/type discovery and availability. Document IDs are retrieval identifiers, not body search terms: use get_document_content for a known document_id. Older replaced disclosures are excluded by default: set latest_only=false for historical searches, even with date filters.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -387,7 +379,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "search_news": {
-        "description": "Search news (title and body). Keep news separate from document search in the MVP.",
+        "description": "Search news title/body separately from documents. Date filters apply to observed_at (first observation), unlike list_news which filters updated_at. body is a source-based 1-3 sentence news item, not the detected article text; references contain URLs or document_id values.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -401,24 +393,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
     },
 }
 
-SKILL_HELPER_TOOLS: dict[str, dict[str, Any]] = {
-    "list_skills": {
-        "description": "Return the lightweight skill index as a fallback when resource discovery is weak.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
-    },
-    "get_skill": {
-        "description": "Return a workflow skill detail resource by skill id.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {"id": {"type": "string", "description": "Skill id from skill://index.json or list_skills."}},
-            "required": ["id"],
-            "additionalProperties": False,
-        },
-    },
+HELPER_TOOLS: dict[str, dict[str, Any]] = {
     "diagnose_setup": {
         "description": "Diagnose local MCP server setup without returning secrets or contacting the Momonga Search API.",
         "inputSchema": {
@@ -455,7 +430,7 @@ SKILL_HELPER_TOOLS: dict[str, dict[str, Any]] = {
 
 
 def tool_definitions() -> list[dict[str, Any]]:
-    tools = {**DOCUMENT_LOOKUP_TOOLS, **RETRIEVAL_TOOLS, **SKILL_HELPER_TOOLS}
+    tools = {**DOCUMENT_LOOKUP_TOOLS, **RETRIEVAL_TOOLS, **HELPER_TOOLS}
     return [
         {
             "name": name,

@@ -11,11 +11,10 @@ from uuid import uuid4
 from momonga_search_mcp.api import MomongaApiClient, MomongaApiError, api_error_response, probe_tls_connectivity
 from momonga_search_mcp.cache import CacheManager
 from momonga_search_mcp.config import MCP_PROTOCOL_VERSION, SERVER_NAME, Config, resolved_server_version
-from momonga_search_mcp.skills import get_skill, list_skills
 from momonga_search_mcp.tools.definitions import (
     DOCUMENT_LOOKUP_TOOLS,
+    HELPER_TOOLS,
     RETRIEVAL_TOOLS,
-    SKILL_HELPER_TOOLS,
     TOOL_ARGUMENT_ALTERNATIVES,
 )
 from momonga_search_mcp.tools.response import (
@@ -27,20 +26,10 @@ from momonga_search_mcp.tools.response import (
 )
 
 DEFAULT_CONFIG = Config(api_key="ms_test_xxx")
-TOOL_SCHEMAS = {**DOCUMENT_LOOKUP_TOOLS, **RETRIEVAL_TOOLS, **SKILL_HELPER_TOOLS}
+TOOL_SCHEMAS = {**DOCUMENT_LOOKUP_TOOLS, **RETRIEVAL_TOOLS, **HELPER_TOOLS}
 DEFAULT_SECTION_SEARCH_CONTEXT_CHARS = 150
 SECTION_SEARCH_MAX_MATCHES = 15
 DEFAULT_SECTION_WINDOW_CHARACTERS = 1500
-SKILL_INDEX_GUARDED_TOOLS = {
-    "search_issuers",
-    "list_documents",
-    "list_news",
-    "get_document_content",
-    "search_section_contents",
-    "get_section_window",
-    "search_documents",
-    "search_news",
-}
 API_KEY_REQUIRED_TOOLS = {
     "search_issuers",
     "list_documents",
@@ -71,7 +60,6 @@ def call_tool(
     *,
     cache_manager_getter: Callable[[], CacheManager] | None = None,
     config: Config = DEFAULT_CONFIG,
-    skill_index_seen: bool = True,
 ) -> dict[str, Any]:
     if not isinstance(params, dict):
         return _validation_error("tools/call params must be an object")
@@ -88,25 +76,9 @@ def call_tool(
             f"Unknown tool: {name}",
             next_action="Use one of the tool names returned by tools/list.",
         )
-    if name in SKILL_INDEX_GUARDED_TOOLS and not skill_index_seen:
-        return _tool_error(
-            "skill_index_required",
-            f"{name} requires reading the Momonga Search skill index before substantive research.",
-            next_action=(
-                "First read resource skill://index.json or call list_skills. "
-                "You can also load a workflow detail via get_skill (id from the index), "
-                "or launch a workflow via prompts/get with use_document_research, "
-                "use_news_research, or use_evidence_answering."
-            ),
-        )
-
     try:
         _validate_tool_arguments(name, arguments)
         _validate_runtime_limits(name, arguments, config)
-        if name == "list_skills":
-            return tool_json_result({"ok": True, "skills": list_skills()})
-        if name == "get_skill":
-            return tool_json_result({"ok": True, **get_skill(_required_string(arguments, "id"))})
         if name == "diagnose_setup":
             return tool_json_result(_call_diagnose_setup(config))
         if name == "list_cached_resources":

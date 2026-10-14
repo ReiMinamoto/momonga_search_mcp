@@ -1,7 +1,7 @@
 [project]
 name = "momonga-search-mcp"
 version = "1.0.0"
-description = "MCP stdio server for Momonga Search API document and news research workflows"
+description = "MCP stdio server for Momonga Search API document and news tools"
 readme = "README.md"
 requires-python = ">=3.13"
 license = "MIT"
@@ -22,9 +22,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-momonga_search_mcp = ["skill_resources/index.json", "skill_resources/skills/*.md"]
 
 [tool.ruff]
 line-length = 130

@@ -128,62 +128,10 @@ class ServerTests(unittest.TestCase):
                 "get_document_page_image",
                 "search_documents",
                 "search_news",
-                "list_skills",
-                "get_skill",
                 "diagnose_setup",
                 "list_cached_resources",
             ],
         )
-
-    def test_resources_list_includes_skill_resources(self) -> None:
-        response = self.server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "resources/list"})
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        uris = [resource["uri"] for resource in response["result"]["resources"]]
-        self.assertEqual(
-            uris,
-            [
-                "skill://index.json",
-                "skill://skills/document-research.md",
-                "skill://skills/document-content-retrieval.md",
-                "skill://skills/news-research.md",
-                "skill://skills/file-download.md",
-                "skill://skills/evidence-compression.md",
-                "skill://skills/evidence-answering.md",
-            ],
-        )
-
-    def test_resources_read_skill_index_is_lightweight_json(self) -> None:
-        response = self.server.handle_message(
-            {"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://index.json"}}
-        )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        content = response["result"]["contents"][0]
-        self.assertEqual(content["mimeType"], "application/json")
-        payload = json.loads(content["text"])
-        self.assertEqual(len(payload["skills"]), 6)
-        self.assertIn("resource_uri", payload["skills"][0])
-        self.assertNotIn("## Workflow", content["text"])
-
-    def test_resources_read_skill_detail(self) -> None:
-        response = self.server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "resources/read",
-                "params": {"uri": "skill://skills/document-research.md"},
-            }
-        )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        content = response["result"]["contents"][0]
-        self.assertEqual(content["mimeType"], "text/markdown")
-        self.assertIn("# Document Research Skill", content["text"])
-        self.assertIn("switch to `document-content-retrieval`", content["text"])
 
     def test_momonga_resources_list_and_read_cached_section_manifest_without_api_replay(self) -> None:
         api_client = FakeApiClient()
@@ -191,14 +139,6 @@ class ServerTests(unittest.TestCase):
             server = self._initialized_server(
                 Config(api_key="ms_test_xxx", cache_dir=Path(temp_dir)),
                 api_client=api_client,
-            )
-            server.handle_message(
-                {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "tools/call",
-                    "params": {"name": "list_skills", "arguments": {}},
-                }
             )
 
             api_client.response = {"document_id": "doc_123", "toc": [{"section_id": "sec_1", "section_title": "Risk"}]}
@@ -276,87 +216,6 @@ class ServerTests(unittest.TestCase):
         self.assertNotIn("content", read_payload)
         self.assertEqual(api_client.calls, calls_before_read)
 
-    def test_prompts_list_and_get_representative_prompt(self) -> None:
-        list_response = self.server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "prompts/list"})
-
-        self.assertIsNotNone(list_response)
-        assert list_response is not None
-        prompt_names = [prompt["name"] for prompt in list_response["result"]["prompts"]]
-        self.assertEqual(
-            prompt_names,
-            ["use_document_research", "use_news_research", "use_evidence_answering"],
-        )
-        self.assertEqual(list_response["result"]["prompts"][0]["title"], "Use Document Research")
-
-        get_response = self.server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "prompts/get",
-                "params": {
-                    "name": "use_document_research",
-                    "arguments": {"target": "Toyota", "theme": "risk factors"},
-                },
-            }
-        )
-
-        self.assertIsNotNone(get_response)
-        assert get_response is not None
-        text = get_response["result"]["messages"][0]["content"]["text"]
-        self.assertIn("skill://skills/document-research.md", text)
-        self.assertIn("Toyota", text)
-        self.assertIn("risk factors", text)
-
-    def test_prompts_get_rejects_missing_required_argument(self) -> None:
-        response = self.server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "prompts/get",
-                "params": {
-                    "name": "use_document_research",
-                    "arguments": {"target": "Toyota"},
-                },
-            }
-        )
-
-        self.assertEqual(
-            response,
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "error": {
-                    "code": -32602,
-                    "message": "theme is required",
-                },
-            },
-        )
-
-    def test_prompts_get_rejects_unknown_arguments(self) -> None:
-        response = self.server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "prompts/get",
-                "params": {
-                    "name": "use_news_research",
-                    "arguments": {"theme": "monetary policy", "ignored": "x"},
-                },
-            }
-        )
-
-        self.assertEqual(
-            response,
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "error": {
-                    "code": -32602,
-                    "message": "unknown prompt arguments: ignored",
-                },
-            },
-        )
-
     def test_tools_call_validates_required_arguments(self) -> None:
         response = self.server.handle_message(
             {
@@ -399,341 +258,37 @@ class ServerTests(unittest.TestCase):
             },
         )
 
-    def test_list_skills_helper(self) -> None:
-        response = self.server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": "list_skills", "arguments": {}},
-            }
-        )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
-        self.assertNotIn("isError", response["result"])
-        self.assertEqual(
-            [skill["id"] for skill in payload["skills"]],
-            [
-                "document-research",
-                "document-content-retrieval",
-                "news-research",
-                "file-download",
-                "evidence-compression",
-                "evidence-answering",
-            ],
-        )
-        self.assertIn("triggers", payload["skills"][0])
-
     def test_emit_json_line_writes_utf8_bytes_even_with_legacy_text_wrapper(self) -> None:
-        server = self._initialized_server(Config(api_key="ms_test_xxx"))
-        response = server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "list_skills", "arguments": {}},
-            }
-        )
-        assert response is not None
-
+        response = {"jsonrpc": "2.0", "id": 2, "result": {"text": "企業開示"}}
         output_buffer = BytesIO()
         output_stream = TextIOWrapper(output_buffer, encoding="cp932")
         _emit_json_line(output_stream, response)
         parsed = json.loads(output_buffer.getvalue().decode("utf-8"))
-        payload = json.loads(parsed["result"]["content"][0]["text"])
-        self.assertIn("開示", payload["skills"][0]["triggers"])
+        self.assertEqual(parsed["result"]["text"], "企業開示")
 
-    def test_evidence_compression_skill_resource(self) -> None:
-        index_response = self.server.handle_message(
-            {"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://index.json"}}
-        )
-        self.assertIsNotNone(index_response)
-        assert index_response is not None
-        index_payload = json.loads(index_response["result"]["contents"][0]["text"])
-        skill = next(item for item in index_payload["skills"] if item["id"] == "evidence-compression")
-        self.assertEqual(skill["recommended_first_tools"], ["search_section_contents", "get_section_window"])
-
-        detail_response = self.server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "resources/read",
-                "params": {"uri": "skill://skills/evidence-compression.md"},
-            }
-        )
-        self.assertIsNotNone(detail_response)
-        assert detail_response is not None
-        content = detail_response["result"]["contents"][0]
-        self.assertEqual(content["mimeType"], "text/markdown")
-        self.assertIn("# Evidence Compression Skill", content["text"])
-        self.assertIn("evidence_notes", content["text"])
-        self.assertIn("source_resource_uri", content["text"])
-
-    def test_get_skill_helper(self) -> None:
-        response = self.server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": "get_skill", "arguments": {"id": "news-research"}},
-            }
-        )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
-        self.assertEqual(payload["id"], "news-research")
-        self.assertIn("# News Research Skill", payload["content"])
-
-    def test_search_issuers_also_requires_skill_index_first(self) -> None:
+    def test_research_tools_are_available_without_workflow_setup(self) -> None:
         api_client = FakeApiClient()
+        api_client.response = {"results": []}
         server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
-
-        response = server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": "search_issuers", "arguments": {"q": "8058"}},
-            }
+        result = server.handle_message(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_issuers", "arguments": {"q": "企業"}}}
         )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
-        self.assertTrue(response["result"]["isError"])
-        self.assertEqual(payload["error"]["code"], "skill_index_required")
-        self.assertEqual(api_client.calls, [])
-
-    def test_research_tool_requires_skill_index_first(self) -> None:
-        api_client = FakeApiClient()
-        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
-
-        response = server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": "list_documents", "arguments": {"security_codes": ["8058"]}},
-            }
+        self.assertNotIn("isError", result["result"])
+        self.assertEqual(
+            server.handle_message({"jsonrpc": "2.0", "id": 2, "method": "resources/list"})["result"]["resources"], []
         )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
-        self.assertTrue(response["result"]["isError"])
-        self.assertEqual(payload["error"]["code"], "skill_index_required")
-        next_action = payload["error"]["next_action"]
-        self.assertIn("skill://index.json", next_action)
-        self.assertIn("list_skills", next_action)
-        self.assertIn("get_skill", next_action)
-        self.assertIn("use_document_research", next_action)
-        self.assertEqual(api_client.calls, [])
-
-    def test_list_skills_unlocks_research_tools(self) -> None:
-        api_client = FakeApiClient()
-        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
-
-        server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": "list_skills", "arguments": {}},
-            }
+        self.assertNotIn("prompts", server._initialize_result()["capabilities"])
+        names = {
+            tool["name"] for tool in server.handle_message({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})["result"]["tools"]
+        }
+        self.assertFalse(names & {"get_skill", "list_skills"})
+        self.assertEqual(server.handle_message({"jsonrpc": "2.0", "id": 4, "method": "prompts/list"})["error"]["code"], -32601)
+        self.assertEqual(
+            server.handle_message(
+                {"jsonrpc": "2.0", "id": 5, "method": "resources/read", "params": {"uri": "skill://index.json"}}
+            )["error"]["code"],
+            -32602,
         )
-        response = server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "list_documents", "arguments": {"security_codes": ["8058"]}},
-            }
-        )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        self.assertNotIn("isError", response["result"])
-        self.assertEqual(api_client.calls, [("GET", "/documents", {"security_codes": ["8058"]})])
-
-    def test_reading_skill_index_resource_unlocks_research_tools(self) -> None:
-        api_client = FakeApiClient()
-        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
-
-        server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://index.json"}})
-        response = server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "list_documents", "arguments": {"security_codes": ["8058"]}},
-            }
-        )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        self.assertNotIn("isError", response["result"])
-        self.assertEqual(api_client.calls, [("GET", "/documents", {"security_codes": ["8058"]})])
-
-    def test_reading_skill_detail_resource_unlocks_research_tools(self) -> None:
-        api_client = FakeApiClient()
-        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
-
-        server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "resources/read",
-                "params": {"uri": "skill://skills/document-research.md"},
-            }
-        )
-        response = server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "list_documents", "arguments": {"security_codes": ["8058"]}},
-            }
-        )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        self.assertNotIn("isError", response["result"])
-        self.assertEqual(api_client.calls, [("GET", "/documents", {"security_codes": ["8058"]})])
-
-    def test_reading_unknown_resource_does_not_unlock_research_tools(self) -> None:
-        api_client = FakeApiClient()
-        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
-
-        server.handle_message({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "skill://unknown.md"}})
-        response = server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "list_documents", "arguments": {"security_codes": ["8058"]}},
-            }
-        )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
-        self.assertTrue(response["result"]["isError"])
-        self.assertEqual(payload["error"]["code"], "skill_index_required")
-        self.assertEqual(api_client.calls, [])
-
-    def test_get_skill_unlocks_research_tools(self) -> None:
-        api_client = FakeApiClient()
-        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
-
-        server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": "get_skill", "arguments": {"id": "document-research"}},
-            }
-        )
-        response = server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "list_documents", "arguments": {"security_codes": ["8058"]}},
-            }
-        )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        self.assertNotIn("isError", response["result"])
-        self.assertEqual(api_client.calls, [("GET", "/documents", {"security_codes": ["8058"]})])
-
-    def test_failed_get_skill_does_not_unlock_research_tools(self) -> None:
-        api_client = FakeApiClient()
-        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
-
-        server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": "get_skill", "arguments": {"id": "unknown"}},
-            }
-        )
-        response = server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "list_documents", "arguments": {"security_codes": ["8058"]}},
-            }
-        )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
-        self.assertTrue(response["result"]["isError"])
-        self.assertEqual(payload["error"]["code"], "skill_index_required")
-        self.assertEqual(api_client.calls, [])
-
-    def test_launching_prompt_unlocks_research_tools(self) -> None:
-        api_client = FakeApiClient()
-        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
-
-        server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "prompts/get",
-                "params": {
-                    "name": "use_document_research",
-                    "arguments": {"target": "Toyota", "theme": "risk factors"},
-                },
-            }
-        )
-        response = server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "list_documents", "arguments": {"security_codes": ["8058"]}},
-            }
-        )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        self.assertNotIn("isError", response["result"])
-        self.assertEqual(api_client.calls, [("GET", "/documents", {"security_codes": ["8058"]})])
-
-    def test_failed_prompt_get_does_not_unlock_research_tools(self) -> None:
-        api_client = FakeApiClient()
-        server = self._initialized_server(Config(api_key="ms_test_xxx"), api_client=api_client)
-
-        server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "prompts/get",
-                "params": {"name": "unknown"},
-            }
-        )
-        response = server.handle_message(
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {"name": "list_documents", "arguments": {"security_codes": ["8058"]}},
-            }
-        )
-
-        self.assertIsNotNone(response)
-        assert response is not None
-        payload = json.loads(response["result"]["content"][0]["text"])
-        self.assertTrue(response["result"]["isError"])
-        self.assertEqual(payload["error"]["code"], "skill_index_required")
-        self.assertEqual(api_client.calls, [])
 
 
 class ServerLoopTests(unittest.TestCase):

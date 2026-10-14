@@ -16,6 +16,10 @@ DOCUMENT_FIELDS = (
     "issuers",
     "published_at",
     "timeline_at",
+    "timeline_precision",
+    "timeline_basis",
+    "first_observed_at",
+    "retry_after_seconds",
     "content_status",
     "character_count",
     "reference_url",
@@ -26,6 +30,7 @@ NEWS_FIELDS = (
     "title",
     "body",
     "observed_at",
+    "updated_at",
     "related_issuers",
     "references",
 )
@@ -72,13 +77,19 @@ def success_response(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": True,
             **_pick(payload, ("document_id", "page_count", "page_image_count")),
-            "page_images": _page_numbers(payload),
+            "page_images": [
+                _pick(item, ("page_number", "source_route", "image_role"))
+                for item in _list(payload, "page_images")
+                if type(item.get("page_number")) is int
+            ],
         }
     if tool_name == "list_document_originals":
         return {
             "ok": True,
             **_pick(payload, ("document_id",)),
-            "originals": [_pick(item, ("original_id", "filename", "media_type")) for item in _list(payload, "originals")],
+            "originals": [
+                _pick(item, ("original_id", "filename", "media_type", "kind", "role")) for item in _list(payload, "originals")
+            ],
         }
     if tool_name in {"list_news", "search_news"}:
         return _results_response(payload, lambda item: _pick(item, NEWS_FIELDS))
@@ -395,15 +406,6 @@ def _collect_sections(node: dict[str, Any]) -> list[dict[str, Any]]:
     for child in node["children"].values():
         sections.extend(_collect_sections(child))
     return sections
-
-
-def _page_numbers(payload: dict[str, Any]) -> list[int]:
-    page_numbers = []
-    for item in _list(payload, "page_images"):
-        page_number = item.get("page_number")
-        if type(page_number) is int:
-            page_numbers.append(page_number)
-    return page_numbers
 
 
 def _pick(item: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:

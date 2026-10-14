@@ -43,7 +43,7 @@ MCPは、候補・取得可否・取得単位の確認と、本文・画像・�
 - `content_status=ready` は本文取得可能、`pending_release` は公開待ち、`external_only` はAPI本文ではなく外部参照先で確認する文書です。
 - `reference_url` は元ファイルの直接download URLではありません。元ファイル取得には `list_document_originals` / `get_document_original` を使います。
 - news系toolは見出し `title`、1〜3文の本文 `body`、根拠の `references[]` を返します。報道記事の本文ではありません。
-- coverageには制約があります。例えばv1では `ir_material` がmetadata一覧に出ても、本文検索対象外の場合があります。
+- coverageには制約があります。v1の `ir_material` はメタデータ・外部リンクのみで、本文検索・本文取得・元ファイル・画像の配信はありません。
 
 ## `search_issuers`
 
@@ -123,7 +123,9 @@ MCPは、候補・取得可否・取得単位の確認と、本文・画像・�
 | `document_type` | 有報・短信・その他の判別。 |
 | `issuers` | issuer filter なし・複数社検索時の文書帰属確認。 |
 | `published_at` | 文書の公表時刻として使うため。 |
-| `timeline_at` | 時系列で候補を選ぶため。 |
+| `timeline_at` | 時系列で候補を選ぶため。公式時刻とは限りません。 |
+| `timeline_precision`, `timeline_basis`, `first_observed_at` | 正規化時刻の精度・根拠と初回観測時刻。 |
+| `retry_after_seconds` | 公開待ちの場合の再試行目安（APIが返す場合）。 |
 | `content_status` | `get_document_toc` / `get_document_content` に進めるか判断するため。 |
 | `character_count` | TOC取得前の本文量見積もりや、section selection の要否判断に使うため。 |
 | `reference_url` | `external_only` など本文取得できない文書で外部根拠へ進むため。 |
@@ -131,7 +133,7 @@ MCPは、候補・取得可否・取得単位の確認と、本文・画像・�
 
 ### 落とす field
 
-`tags`, `timeline_precision`, `timeline_basis`, `first_observed_at`, `content_available`, `image_available`, `page_count`, `page_image_count`
+`tags`, `content_available`, `image_available`, `page_count`, `page_image_count`
 
 ## `get_document_metadata`
 
@@ -261,7 +263,7 @@ API response には document metadata も含まれますが、`get_document_toc`
   "document_id": "doc_123",
   "page_count": 17,
   "page_image_count": 3,
-  "page_images": [1, 2, 5]
+  "page_images": [{"page_number": 1, "source_route": "vision", "image_role": "vlm_evidence"}, {"page_number": 2}, {"page_number": 5}]
 }
 ```
 
@@ -272,11 +274,12 @@ API response には document metadata も含まれますが、`get_document_toc`
 | `document_id` | 対象文書の確認。 |
 | `page_count` | 文書全体のページ数。 |
 | `page_image_count` | 画像取得可能なページ数。 |
-| `page_images[]` | page image 取得に渡すページ番号。 |
+| `page_images[].page_number` | page image 取得に渡すページ番号。 |
+| `page_images[].source_route`, `page_images[].image_role` | 本文の生成経路と画像の用途。`vision` はVLM書き起こし、`ocr_fallback` は本文抽出失敗。 |
 
 ### 落とす field
 
-`image_role`, `source_route`
+画像サイズなどの取得判断に不要なfield
 
 ## `list_document_originals`
 
@@ -308,10 +311,11 @@ API response には document metadata も含まれますが、`get_document_toc`
 | `originals[].original_id` | 元ファイル取得に渡す ID。 |
 | `originals[].filename` | 人間向け識別。 |
 | `originals[].media_type` | PDF / ZIP などの形式判断。 |
+| `originals[].kind`, `originals[].role` | 元ファイルの種別・用途による選択。 |
 
 ### 落とす field
 
-`content_available`, `content_status`, `original_available`, `kind`, `role`, `size_bytes`, `sha256`
+`content_available`, `content_status`, `original_available`, `size_bytes`, `sha256`
 
 ## `get_document_original`
 
@@ -444,7 +448,8 @@ API response には document metadata も含まれますが、`get_document_toc`
 | `news_id` | ニュース項目の識別。 |
 | `title` | 表示用の見出し。ない場合は `null`。 |
 | `body` | モデルが読む本文。1〜3文。 |
-| `observed_at` | 時点の判断。 |
+| `observed_at` | 初回観測時刻。ニュース検索の日付フィルタ対象。 |
+| `updated_at` | 最終更新時刻。ニュース一覧の順序・日付フィルタ対象。同じnews_idでも改訂されます。 |
 | `related_issuers` | 関連 issuer の確認。 |
 | `references` | 根拠文書や URL へ戻るため。 |
 | `next_cursor` | 続きの一覧取得に必要。 |

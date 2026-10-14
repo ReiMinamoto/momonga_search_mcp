@@ -22,6 +22,7 @@ class ToolResponseTests(unittest.TestCase):
                         "published_at": "2026-05-01T00:00:00Z",
                         "timeline_at": "2026-05-01T00:00:00Z",
                         "timeline_precision": "datetime",
+                        "timeline_basis": "official",
                         "first_observed_at": "2026-05-01T00:00:00Z",
                         "content_status": "ready",
                         "character_count": 9000,
@@ -47,6 +48,9 @@ class ToolResponseTests(unittest.TestCase):
                         "issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
                         "published_at": "2026-05-01T00:00:00Z",
                         "timeline_at": "2026-05-01T00:00:00Z",
+                        "timeline_precision": "datetime",
+                        "timeline_basis": "official",
+                        "first_observed_at": "2026-05-01T00:00:00Z",
                         "content_status": "ready",
                         "character_count": 9000,
                         "reference_url": "https://example.com/report.pdf",
@@ -72,7 +76,7 @@ class ToolResponseTests(unittest.TestCase):
                         "content_status": "ready",
                         "character_count": 9000,
                         "reference_url": "https://example.com/report.pdf",
-                        "first_observed_at": "dropped",
+                        "first_observed_at": "2026-05-01T00:00:00Z",
                         "matches": [
                             {
                                 "section_id": "sec_1",
@@ -104,6 +108,7 @@ class ToolResponseTests(unittest.TestCase):
                         "issuers": [{"security_code": "8058", "name": "三菱商事株式会社"}],
                         "published_at": "2026-05-01T00:00:00Z",
                         "timeline_at": "2026-05-01T00:00:00Z",
+                        "first_observed_at": "2026-05-01T00:00:00Z",
                         "content_status": "ready",
                         "character_count": 9000,
                         "reference_url": "https://example.com/report.pdf",
@@ -215,7 +220,10 @@ class ToolResponseTests(unittest.TestCase):
                 "document_id": "doc_123",
                 "page_count": 17,
                 "page_image_count": 9,
-                "page_images": [1, 5],
+                "page_images": [
+                    {"page_number": 1, "source_route": "vision", "image_role": "vlm_evidence"},
+                    {"page_number": 5, "image_role": "vlm_evidence"},
+                ],
             },
         )
 
@@ -250,6 +258,8 @@ class ToolResponseTests(unittest.TestCase):
                         "original_id": "pdf",
                         "filename": "report.pdf",
                         "media_type": "application/pdf",
+                        "kind": "pdf",
+                        "role": "primary",
                     }
                 ],
             },
@@ -266,6 +276,7 @@ class ToolResponseTests(unittest.TestCase):
                         "body": "BOJ announced a policy change.",
                         "statement": "BOJ announced a policy change.",
                         "observed_at": "2026-05-01T00:00:00Z",
+                        "updated_at": "2026-05-02T00:00:00Z",
                         "related_issuers": [],
                         "references": [{"type": "url", "url": "https://www.boj.or.jp/"}],
                     }
@@ -284,6 +295,7 @@ class ToolResponseTests(unittest.TestCase):
                         "title": "BOJ, policy rate unchanged",
                         "body": "BOJ announced a policy change.",
                         "observed_at": "2026-05-01T00:00:00Z",
+                        "updated_at": "2026-05-02T00:00:00Z",
                         "related_issuers": [],
                         "references": [{"type": "url", "url": "https://www.boj.or.jp/"}],
                     }
