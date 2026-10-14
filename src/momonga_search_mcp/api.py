@@ -8,8 +8,10 @@ from datetime import UTC, datetime
 from email.message import Message
 from email.utils import parsedate_to_datetime
 import json
+import logging
 import socket
 import ssl
+from time import perf_counter
 from typing import Any, BinaryIO
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
@@ -20,6 +22,7 @@ import truststore
 from momonga_search_mcp.config import SERVER_NAME, SERVER_VERSION, Config
 
 Transport = Callable[[Request, float], BinaryIO]
+logger = logging.getLogger(__name__)
 PUBLIC_ERROR_FIELDS = (
     "content_status",
     "document_id",
@@ -107,6 +110,7 @@ class MomongaApiClient:
             headers["Content-Type"] = "application/json"
 
         request = Request(url, data=data, headers=headers, method=method.upper())
+        start = perf_counter()
         try:
             with self._transport(request, self.timeout_seconds) as response:
                 raw_headers = getattr(response, "headers", None)
@@ -130,6 +134,8 @@ class MomongaApiClient:
                 "Momonga Search API request failed",
                 detail=str(exc.reason),
             ) from exc
+        finally:
+            logger.info("api_completed method=%s path=%s duration_ms=%.1f", method.upper(), path, (perf_counter() - start) * 1000)
 
     def request_binary(
         self,
@@ -148,6 +154,7 @@ class MomongaApiClient:
             },
             method=method.upper(),
         )
+        start = perf_counter()
         try:
             with self._transport(request, self.timeout_seconds) as response:
                 headers = getattr(response, "headers", None)
@@ -173,6 +180,8 @@ class MomongaApiClient:
                 "Momonga Search API request failed",
                 detail=str(exc.reason),
             ) from exc
+        finally:
+            logger.info("api_completed method=%s path=%s duration_ms=%.1f", method.upper(), path, (perf_counter() - start) * 1000)
 
     def _url(self, path: str, params: dict[str, Any] | None) -> str:
         normalized_path = path if path.startswith("/") else f"/{path}"

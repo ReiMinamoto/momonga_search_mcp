@@ -132,6 +132,7 @@ def get_document_content_response(
     return_content: bool,
     requested_section_ids: list[str] | None = None,
     missing_section_ids: list[str] | None = None,
+    cached_section_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     section_responses = []
     inline_budget = MAX_INLINE_CHARACTERS_PER_CALL
@@ -140,7 +141,7 @@ def get_document_content_response(
             section,
             document_id=document_id,
             resource_uri=resource_uri,
-            cached=cached_sections,
+            cached=cached_sections or section.get("section_id") in (cached_section_ids or set()),
             return_content=return_content,
             inline_budget=inline_budget,
         )

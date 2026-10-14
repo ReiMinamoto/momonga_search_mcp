@@ -27,9 +27,13 @@ MCP側では、巨大なtool responseを避けるために実行時上限を固�
 
 `get_document_content` は取得した本文を cache に保存しますが、inline で返すのは1回あたり合計 20000 文字までです。要求順に詰めていき、残りに収まらない section（full document synthetic section を含む）は `content_mode=manifest`、`content_available_in_cache=true`、`recommended_tools` を返し、本文は返しません。長い section の確認は、cache済み本文に対して `search_section_contents` で短い抜粋を探し、必要箇所だけ `get_section_window` で読みます。
 
+INFOログの `api_completed` は通信からJSON decodeまたはbinary受信まで、`tool_completed` はtool全体の経過時間（ms）です。stderrだけに出し、API key・query・本文は記録しません。モデル/hostの待ちはこのログの計測対象外です。
+
 ## キャッシュ方針
 
 MCP cache は必須です。本文、TOC、page image、original file はローカル resource として保存し、LLM/Agent には必要なID、短い文脈、明示的に要求された本文範囲だけを返します。
+
+本文取得ではcache済みと未取得のsectionを分け、APIには未取得のsectionだけを要求します。結果は要求順に返し、全体の `cache_hit` は全sectionがcache済みの場合だけtrueです。各sectionの `cached` は個別のcache利用を表します。欠損や不正JSONのcacheは再取得し、本文ではsection IDと文字列contentも検証します。書き込みは一時ファイルからの置換で行います。
 
 cache可否の基準は、取得対象が不変または実質不変かどうかです。
 
@@ -59,7 +63,7 @@ cache可否の基準は、取得対象が不変または実質不変かどうか
 export MOMONGA_SEARCH_MCP_CACHE_DIR=/home/user/.cache/momonga-search-mcp
 ```
 
-cache容量上限は `MOMONGA_SEARCH_MCP_CACHE_MAX_GB` で指定します。デフォルトは `1` GBです。serverはcache書き込み後に上限を超えている場合、今回書き込んだresourceを保護しつつ、古いcached resourceから上限の半分以下になるまで自動pruneします。
+cache容量上限は `MOMONGA_SEARCH_MCP_CACHE_MAX_GB` で指定します。デフォルトは `1` GBです。serverはcache書き込み後に上限を超えている場合、今回のrequestに必要なresourceを保護しつつ、古いcached resourceから上限の半分以下を目標に自動pruneします。保護対象だけで上限を超える場合は当該requestの根拠を保持し、後続の書き込みで再度容量を評価します。
 
 キャッシュを削除する場合:
 

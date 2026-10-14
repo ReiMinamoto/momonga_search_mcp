@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from time import perf_counter
 from typing import Any, TextIO
 
 from dotenv import load_dotenv
@@ -96,12 +97,20 @@ class StdioMCPServer:
                 known_tool_names = {tool["name"] for tool in tool_definitions()}
                 if params["name"] not in known_tool_names:
                     return _error_response(request_id, -32602, f"Unknown tool: {params['name']}")
-            result = call_tool(
-                self.api_client,
-                params,
-                cache_manager_getter=self._cache_manager,
-                config=self.config,
-            )
+            start = perf_counter()
+            try:
+                result = call_tool(
+                    self.api_client,
+                    params,
+                    cache_manager_getter=self._cache_manager,
+                    config=self.config,
+                )
+            finally:
+                logger.info(
+                    "tool_completed name=%s duration_ms=%.1f",
+                    params.get("name") if isinstance(params, dict) else None,
+                    (perf_counter() - start) * 1000,
+                )
             return {
                 "jsonrpc": JSONRPC_VERSION,
                 "id": request_id,

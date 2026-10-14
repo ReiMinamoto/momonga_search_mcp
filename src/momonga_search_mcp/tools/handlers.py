@@ -229,7 +229,6 @@ def _call_search_section_contents(
                 "query": "More specific search terms for the needed evidence.",
                 "match_type": "lexical",
                 "context_chars": context_chars,
-                "max_matches": max_matches,
             },
         }
     return response
@@ -350,9 +349,8 @@ def _call_get_document_toc(
 
     cache_manager = cache_manager_getter()
     cached_toc = cache_manager.get_document_toc(document_id)
-    if cached_toc is not None:
-        payload = cache_manager.read_json(cached_toc)
-    else:
+    payload = cache_manager.read_cached_json(cached_toc) if cached_toc is not None else None
+    if payload is None:
         payload = api_client.get(f"/documents/{_quote_path_component(document_id)}/toc")
         cache_manager.store_document_toc(document_id, payload)
     return tool_json_result(get_document_toc_response(payload, path_prefix=path_prefix))
@@ -380,66 +378,63 @@ def _call_get_document_content(
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_content")
     cache_manager = cache_manager_getter()
     requested_section_ids = section_ids or [FULL_DOCUMENT_SECTION_ID]
-    if requested_section_ids:
-        cached_resources = [cache_manager.get_document_section(document_id, section_id) for section_id in requested_section_ids]
-        if all(resource is not None for resource in cached_resources):
-            resources = [resource for resource in cached_resources if resource is not None]
-            sections = [cache_manager.read_json(resource) for resource in resources]
-            response = get_document_content_response(
-                document_id,
-                list(zip(sections, [resource.resource_uri for resource in resources], strict=True)),
-                cache_hit=True,
-                cached_sections=True,
-                return_content=return_content,
-                requested_section_ids=section_ids or None,
-            )
-            return tool_json_result(response)
-
-    params = {"sections": section_ids} if section_ids else None
-    endpoint = f"/documents/{_quote_path_component(document_id)}/content"
-    payload = api_client.get(endpoint, params)
-    section_resources = []
-    missing_section_ids = []
-    if section_ids and isinstance(payload.get("content_sections"), list):
-        content_sections = payload["content_sections"]
-        for section in content_sections:
-            if not isinstance(section, dict):
-                continue
-
-            section_id = _required_string(section, "section_id")
-            resource_uri = cache_manager.store_document_section(document_id, section_id, section).resource_uri
-            section_resources.append((section, resource_uri))
-        returned_section_ids = {
-            section.get("section_id")
-            for section, _resource_uri in section_resources
-            if isinstance(section.get("section_id"), str)
-        }
-        missing_section_ids = [section_id for section_id in section_ids if section_id not in returned_section_ids]
-        if not section_resources:
-            raise ValueError(f"requested section_ids were not returned: {', '.join(missing_section_ids or section_ids)}")
-    elif section_ids:
-        missing_section_ids = list(section_ids)
+    section_resources = {}
+    for section_id in requested_section_ids:
+        resource = cache_manager.get_document_section(document_id, section_id)
+        if resource is not None:
+            section = cache_manager.read_cached_json(resource)
+            if section is not None and isinstance(section.get("content"), str) and section.get("section_id") == section_id:
+                section_resources[section_id] = (section, resource.resource_uri)
+    cached_section_ids = set(section_resources)
+    uncached_ids = [section_id for section_id in requested_section_ids if section_id not in section_resources]
+    if uncached_ids:
+        params = {"sections": uncached_ids} if section_ids else None
+        payload = api_client.get(f"/documents/{_quote_path_component(document_id)}/content", params)
+        protected = {cache_manager.document_section_uri(document_id, section_id) for section_id in requested_section_ids}
+        if section_ids:
+            content_sections = payload.get("content_sections", [])
+            if isinstance(content_sections, list):
+                for section in content_sections:
+                    if not isinstance(section, dict):
+                        continue
+                    section_id = _required_string(section, "section_id")
+                    if section_id not in uncached_ids:
+                        continue
+                    resource = cache_manager.store_document_section(
+                        document_id,
+                        section_id,
+                        section,
+                        protected_resource_uris=protected,
+                    )
+                    section_resources[section_id] = (section, resource.resource_uri)
+        else:
+            content = payload.get("content")
+            if isinstance(content, str):
+                section = {
+                    "section_id": FULL_DOCUMENT_SECTION_ID,
+                    "section_title": "Full document",
+                    "character_count": payload.get("character_count", len(content)),
+                    "content": content,
+                }
+                resource = cache_manager.store_document_section(
+                    document_id,
+                    FULL_DOCUMENT_SECTION_ID,
+                    section,
+                    protected_resource_uris=protected,
+                )
+                section_resources[FULL_DOCUMENT_SECTION_ID] = (section, resource.resource_uri)
+    missing_section_ids = [section_id for section_id in requested_section_ids if section_id not in section_resources]
+    if section_ids and not section_resources:
         raise ValueError(f"requested section_ids were not returned: {', '.join(missing_section_ids)}")
-    elif not section_ids:
-        content = payload.get("content")
-        if isinstance(content, str):
-            full_section = {
-                "section_id": FULL_DOCUMENT_SECTION_ID,
-                "section_title": "Full document",
-                "character_count": payload.get("character_count", len(content)),
-                "content": content,
-            }
-            resource_uri = cache_manager.store_document_section(document_id, FULL_DOCUMENT_SECTION_ID, full_section).resource_uri
-            section_resources.append((full_section, resource_uri))
-
     response = get_document_content_response(
         document_id,
-        section_resources,
-        cache_hit=False,
-        cached_sections=False,
+        [section_resources[section_id] for section_id in requested_section_ids if section_id in section_resources],
+        cache_hit=not uncached_ids,
+        cached_sections=not uncached_ids,
+        cached_section_ids=cached_section_ids,
         return_content=return_content,
         requested_section_ids=section_ids or None,
-        missing_section_ids=missing_section_ids,
+        missing_section_ids=missing_section_ids if section_ids else None,
     )
     return tool_json_result(response)
 

@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import shutil
 import sqlite3
+from tempfile import NamedTemporaryFile
 from typing import Any
 from urllib.parse import quote, unquote
 
@@ -91,6 +92,8 @@ class CacheManager:
         document_id: str,
         section_id: str,
         section: dict[str, Any],
+        *,
+        protected_resource_uris: set[str] | None = None,
     ) -> CachedResource:
         path = self._write_json(("documents", document_id, "sections", f"{section_id}.json"), section)
         resource_uri = self.document_section_uri(document_id, section_id)
@@ -120,7 +123,7 @@ class CacheManager:
             name=f"Document Section {section_id}",
             description=f"Cached section {section_id} for document {document_id}.",
         )
-        self.prune(protected_resource_uris={resource_uri})
+        self.prune(protected_resource_uris={resource_uri} | (protected_resource_uris or set()))
         return CachedResource(resource_uri=resource_uri, path=path)
 
     def get_document_section(self, document_id: str, section_id: str) -> CachedResource | None:
@@ -281,6 +284,13 @@ class CacheManager:
 
     def read_json(self, resource: CachedResource) -> dict[str, Any]:
         return self._read_json(resource.path)
+
+    def read_cached_json(self, resource: CachedResource) -> dict[str, Any] | None:
+        """Treat missing or malformed cached JSON as a miss for retrieval tools."""
+        try:
+            return self.read_json(resource)
+        except (FileNotFoundError, UnicodeError, ValueError):
+            return None
 
     def list_json_resources(
         self,
@@ -502,7 +512,7 @@ class CacheManager:
     def _write_json(self, parts: tuple[str, ...], payload: dict[str, Any]) -> Path:
         path = self.cache_root.joinpath(*(_safe_segment(part) for part in parts))
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _atomic_write(path, (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"))
         return path
 
     def _read_json(self, path: Path) -> dict[str, Any]:
@@ -518,7 +528,7 @@ class CacheManager:
     def _write_bytes(self, parts: tuple[str, ...], payload: bytes) -> Path:
         path = self.cache_root.joinpath(*(_safe_segment(part) for part in parts))
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(payload)
+        _atomic_write(path, payload)
         return path
 
     def _register_json_resource_path(
@@ -703,6 +713,18 @@ class CacheManager:
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _atomic_write(path: Path, content: bytes) -> None:
+    temporary_path = None
+    try:
+        with NamedTemporaryFile(dir=path.parent, prefix=".momonga-", delete=False) as stream:
+            temporary_path = Path(stream.name)
+            stream.write(content)
+        temporary_path.replace(path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _relative_path(path: Path, root: Path) -> str:
