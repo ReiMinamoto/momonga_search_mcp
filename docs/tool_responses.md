@@ -26,7 +26,7 @@ MCPは、候補・取得可否・取得単位の確認と、本文・画像・�
 | `list_document_page_images` | `GET /v1/documents/{document_id}/page-images` | no | page image取得前に利用可能pageを確認します。 |
 | `list_document_originals` | `GET /v1/documents/{document_id}/originals` | no | original file取得前に `original_id` を確認します。 |
 | `list_news` | `GET /v1/news` | no | newsは `title` + `body` + `references[]` です。報道記事の本文ではありません。 |
-| `get_document_content` | `GET /v1/documents/{document_id}/content` | yes | 小さいsectionだけ本文を返し、大きいsectionはcache保存後にmanifestを返します。 |
+| `get_document_content` | `GET /v1/documents/{document_id}/content` | yes | 1回あたり合計20000文字まで本文を返し、収まらないsectionはcache保存後にmanifestを返します。 |
 | `search_section_contents` | local cache section search | read | cache済みsection内を検索し、短い抜粋とoffsetだけ返します。 |
 | `get_section_window` | local cache section window | read | cache済みsectionのoffset周辺だけを上限付きで返します。 |
 | `search_documents` | `POST /v1/search/documents` | no | 検索結果は候補です。過年度検索では `latest_only=false` を `timeline_until` と併用します。 |
@@ -469,7 +469,7 @@ API response には document metadata も含まれますが、`get_document_toc`
 
 | Tool parameter | API parameter | 理由 |
 | --- | --- | --- |
-| `section_ids` | `sections` | 任意。指定時は1〜5件。MCP tool 側では ID 配列であることを明確にするため。API 呼び出し時に `sections` query parameter に変換します。省略時は `allow_full_document=true` が必須です。 |
+| `section_ids` | `sections` | 任意。指定時は1件以上で、件数の上限はありません。MCP tool 側では ID 配列であることを明確にするため。API 呼び出し時に `sections` query parameter に変換します。省略時は `allow_full_document=true` が必須です。 |
 | `return_content` | なし | MCP response に本文を含めるかを制御する MCP 専用 parameter。API から取得した本文は、返却有無に関係なく cache に保存します。 |
 | `allow_full_document` | なし | デフォルトは `false`。`section_ids` を省略して全文を1つの synthetic section として cache する場合に必須の MCP 専用 safety flag。 |
 
@@ -490,8 +490,7 @@ API response には document metadata も含まれますが、`get_document_toc`
       "cached": false
     }
   ],
-  "max_inline_section_characters": 3000,
-  "max_inline_full_document_characters": 10000,
+  "max_inline_characters_per_call": 20000,
   "cache_hit": false,
   "requested_section_ids": ["sec_1"]
 }
@@ -514,15 +513,14 @@ API response には document metadata も含まれますが、`get_document_toc`
       "cached": false
     }
   ],
-  "max_inline_section_characters": 3000,
-  "max_inline_full_document_characters": 10000,
+  "max_inline_characters_per_call": 20000,
   "cache_hit": false
 }
 ```
 
 `return_content=false` の場合、`content_sections[].content` は返しません。取得した本文は返却有無に関係なく cache に保存します。
-MCP response に本文を inline で含めるのは、通常 section では `character_count` が `max_inline_section_characters` 以下の場合、full document synthetic section では `character_count` が `max_inline_full_document_characters` 以下の場合だけです。大きい section は `content_mode=manifest`、`content_available_in_cache=true`、`recommended_tools=["search_section_contents","get_section_window"]` を返し、本文は返しません。
-通常 section の1回の呼び出しで返りうる inline 本文量は、`max_inline_section_characters` と `section_ids` 上限により bounded です。`allow_full_document=true` の場合は synthetic section 1件だけを返し、`max_inline_full_document_characters` により bounded です。
+MCP response に本文を inline で含めるのは、1回の呼び出しあたり合計 `max_inline_characters_per_call` 文字までです。section は要求順に詰め、残りに収まらない section（full document synthetic section を含む）は `reason=inline_budget_exceeded` で `content_mode=manifest`、`content_available_in_cache=true`、`recommended_tools=["search_section_contents","get_section_window"]` を返し、本文は返しません。
+必要な section は1回の呼び出しでまとめて要求できます。
 
 ### 残す field
 
@@ -541,8 +539,7 @@ MCP response に本文を inline で含めるのは、通常 section では `cha
 | `content_sections[].resource_uri` | cache 済み section を指すローカル resource ID。 |
 | `content_sections[].source_resource_uri` | 根拠所在として使う resource URI。 |
 | `content_sections[].cached` | その section が今回 cache 由来かどうか。 |
-| `max_inline_section_characters` | section 本文を inline で返すか manifest にするかの閾値。 |
-| `max_inline_full_document_characters` | full document synthetic section を inline で返すか manifest にするかの閾値。 |
+| `max_inline_characters_per_call` | 1回の呼び出しで inline で返す本文の合計上限。収まらない section は manifest になります。 |
 | `cache_hit` | tool call 全体が API call を skip したかどうか。 |
 | `requested_section_ids` | 今回要求した section ID。`section_ids` 指定時だけ返ります。 |
 | `missing_section_ids` | 要求した section のうち、API response / cache に存在しなかった ID。存在する場合だけ返ります。 |

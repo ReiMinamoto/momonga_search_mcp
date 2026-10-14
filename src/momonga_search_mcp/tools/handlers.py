@@ -718,11 +718,6 @@ def _validate_runtime_limits(tool_name: str, arguments: dict[str, Any], config: 
         if top_k > config.max_search_top_k:
             raise ValueError(f"top_k must be less than or equal to {config.max_search_top_k}")
 
-    section_ids = arguments.get("section_ids")
-    if tool_name == "get_document_content" and isinstance(section_ids, list):
-        if len(section_ids) > config.max_sections_per_content_call:
-            raise ValueError(f"section_ids must contain at most {config.max_sections_per_content_call} items")
-
 
 def _has_present_value(arguments: dict[str, Any], name: str) -> bool:
     value = arguments.get(name)

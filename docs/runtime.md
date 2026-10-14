@@ -19,15 +19,13 @@ MCP側では、巨大なtool responseを避けるために実行時上限を固�
 | list系toolの `limit` | `25` |
 | search系toolの `top_k` | `25` |
 | `get_document_toc` direct section count | `50`。超える場合は outline / subtree / aggregate を返す |
-| `get_document_content` 1回あたりの `section_ids` | `5`。省略時は `allow_full_document=true` が必須 |
-| `get_document_content` inline section 文字数 | `3000`。超える section は本文を返さず manifest を返す |
-| `get_document_content` inline full document 文字数 | `10000`。`allow_full_document=true` の synthetic section にだけ適用 |
+| `get_document_content` 1回あたりの inline 本文 | 合計 `20000` 文字。要求順に詰め、収まらない section は本文を返さず manifest を返す。`section_ids` の件数に上限はなく、省略時は `allow_full_document=true` が必須 |
 | `search_section_contents.context_chars` | default `150`、hard max `300` |
 | `search_section_contents` match count | `15`。16件目が存在する場合は `matches_truncated=true` |
 | `get_section_window.max_characters` | default `1500`、hard max `5000` |
 | Momonga Search APIへのHTTP request timeout | `15` 秒 |
 
-`get_document_content` は取得した本文を cache に保存しますが、inline で返すのは小さい section だけです。通常 section は `character_count` が 3000 を超えると、full document synthetic section は `character_count` が 10000 を超えると、`content_mode=manifest`、`content_available_in_cache=true`、`recommended_tools` を返し、本文は返しません。長い section の確認は、cache済み本文に対して `search_section_contents` で短い抜粋を探し、必要箇所だけ `get_section_window` で読みます。
+`get_document_content` は取得した本文を cache に保存しますが、inline で返すのは1回あたり合計 20000 文字までです。要求順に詰めていき、残りに収まらない section（full document synthetic section を含む）は `content_mode=manifest`、`content_available_in_cache=true`、`recommended_tools` を返し、本文は返しません。長い section の確認は、cache済み本文に対して `search_section_contents` で短い抜粋を探し、必要箇所だけ `get_section_window` で読みます。
 
 ## キャッシュ方針
 

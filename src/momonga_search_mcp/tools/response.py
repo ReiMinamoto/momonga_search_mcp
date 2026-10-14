@@ -38,8 +38,10 @@ NEWS_FIELDS = (
 CONTENT_SECTION_FIELDS = ("section_id", "section_title", "character_count", "content")
 TOC_FIELDS = ("section_id", "section_title", "heading_path", "character_count", "page_number")
 MAX_DIRECT_TOC_SECTIONS = 50
-MAX_INLINE_SECTION_CHARACTERS = 3_000
-MAX_INLINE_FULL_DOCUMENT_CHARACTERS = 10_000
+# Inline body text shared by all sections of one get_document_content call.
+# Japanese body text costs up to about one token per character, so this stays under
+# typical MCP client output caps (Claude Code: 25,000 tokens).
+MAX_INLINE_CHARACTERS_PER_CALL = 20_000
 FULL_DOCUMENT_SECTION_ID = "__mcp_full_document__"
 
 
@@ -144,6 +146,7 @@ def get_document_content_response(
     missing_section_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     section_responses = []
+    inline_budget = MAX_INLINE_CHARACTERS_PER_CALL
     for section, resource_uri in content_sections:
         section_response = _content_section_response(
             section,
@@ -151,15 +154,17 @@ def get_document_content_response(
             resource_uri=resource_uri,
             cached=cached_sections,
             return_content=return_content,
+            inline_budget=inline_budget,
         )
+        if section_response.get("content_mode") == "inline":
+            inline_budget -= _section_text_length(section, section_response["content"])
         section_responses.append(section_response)
 
     response: dict[str, Any] = {
         "ok": True,
         "document_id": document_id,
         "content_sections": section_responses,
-        "max_inline_section_characters": MAX_INLINE_SECTION_CHARACTERS,
-        "max_inline_full_document_characters": MAX_INLINE_FULL_DOCUMENT_CHARACTERS,
+        "max_inline_characters_per_call": MAX_INLINE_CHARACTERS_PER_CALL,
         "cache_hit": cache_hit,
     }
     if requested_section_ids is not None:
@@ -176,24 +181,20 @@ def _content_section_response(
     resource_uri: str,
     cached: bool,
     return_content: bool,
+    inline_budget: int,
 ) -> dict[str, Any]:
     fields = CONTENT_SECTION_FIELDS if return_content else tuple(field for field in CONTENT_SECTION_FIELDS if field != "content")
     response = _pick(section, fields)
     if return_content:
         content = response.get("content")
         if isinstance(content, str):
-            inline_limit = (
-                MAX_INLINE_FULL_DOCUMENT_CHARACTERS
-                if section.get("section_id") == FULL_DOCUMENT_SECTION_ID
-                else MAX_INLINE_SECTION_CHARACTERS
-            )
-            if _section_text_length(section, content) > inline_limit:
+            if _section_text_length(section, content) > inline_budget:
                 return _content_section_manifest_response(
                     section,
                     document_id=document_id,
                     resource_uri=resource_uri,
                     cached=cached,
-                    reason="section_exceeds_inline_threshold",
+                    reason="inline_budget_exceeded",
                 )
             response["content_mode"] = "inline"
     response["resource_uri"] = resource_uri

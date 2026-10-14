@@ -394,8 +394,8 @@ class ToolHandlerTests(unittest.TestCase):
                 {
                     "section_id": "sec_1",
                     "section_title": "Risk",
-                    "character_count": 3001,
-                    "content": "risk " + ("x" * 2996),
+                    "character_count": 20001,
+                    "content": "risk " + ("x" * 19996),
                 }
             ],
         }
@@ -417,7 +417,7 @@ class ToolHandlerTests(unittest.TestCase):
 
         section = payload["content_sections"][0]
         self.assertEqual(section["content_mode"], "manifest")
-        self.assertEqual(section["reason"], "section_exceeds_inline_threshold")
+        self.assertEqual(section["reason"], "inline_budget_exceeded")
         self.assertTrue(section["content_available_in_cache"])
         self.assertEqual(section["recommended_tools"], ["search_section_contents", "get_section_window"])
         self.assertEqual(section["next_action"]["tool"], "search_section_contents")
@@ -426,7 +426,7 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(section["next_action"]["fallback_tool"], "get_section_window")
         self.assertEqual(section["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
         self.assertNotIn("content", section)
-        self.assertEqual(cached_payload["content"], "risk " + ("x" * 2996))
+        self.assertEqual(cached_payload["content"], "risk " + ("x" * 19996))
 
     def test_search_section_contents_returns_bounded_matches_from_cache(self) -> None:
         api_client = FakeApiClient()
@@ -810,11 +810,34 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(payload["content_sections"][0]["content_mode"], "inline")
         self.assertIsNotNone(cached_section)
 
-    def test_get_document_content_validates_section_count_and_rejects_offset(self) -> None:
+    def test_get_document_content_returns_many_sections_in_one_call(self) -> None:
+        section_ids = [f"sec_{index}" for index in range(1, 10)]
+        api_client = FakeApiClient()
+        api_client.response = {
+            "document_id": "doc_123",
+            "content_sections": [
+                {"section_id": section_id, "section_title": section_id, "character_count": 4, "content": "body"}
+                for section_id in section_ids
+            ],
+        }
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            response = call_tool(
+                api_client,
+                {"name": "get_document_content", "arguments": {"document_id": "doc_123", "section_ids": section_ids}},
+                cache_manager_getter=lambda: cache_manager,
+            )
+        payload = json.loads(response["content"][0]["text"])
+
+        self.assertNotIn("isError", response)
+        self.assertEqual(api_client.calls, [("GET", "/documents/doc_123/content", {"sections": section_ids})])
+        self.assertEqual([section["section_id"] for section in payload["content_sections"]], section_ids)
+        self.assertEqual({section["content_mode"] for section in payload["content_sections"]}, {"inline"})
+
+    def test_get_document_content_requires_full_document_flag_and_rejects_offset(self) -> None:
         invalid_calls = [
             ({"document_id": "doc_123"}, "allow_full_document=true is required when section_ids is omitted"),
             ({"document_id": "doc_123", "section_ids": ["sec_1"], "offset": 0}, "unknown arguments: offset"),
-            ({"document_id": "doc_123", "section_ids": ["sec_1"] * 6}, "section_ids must contain at most 5 items"),
         ]
 
         for arguments, expected_message in invalid_calls:
@@ -824,15 +847,10 @@ class ToolHandlerTests(unittest.TestCase):
             self.assertTrue(response["isError"])
             self.assertEqual(payload["error"]["message"], expected_message)
 
-    def test_runtime_limits_reject_large_result_and_section_requests(self) -> None:
+    def test_runtime_limits_reject_large_result_requests(self) -> None:
         calls = [
             ("list_documents", {"security_codes": ["8058"], "limit": 26}, "limit must be less than or equal to 25"),
             ("search_documents", {"query": "価格転嫁", "top_k": 26}, "top_k must be less than or equal to 25"),
-            (
-                "get_document_content",
-                {"document_id": "doc_123", "section_ids": ["sec_1", "sec_2", "sec_3", "sec_4", "sec_5", "sec_6"]},
-                "section_ids must contain at most 5 items",
-            ),
         ]
 
         for name, arguments, expected_message in calls:

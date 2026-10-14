@@ -374,8 +374,7 @@ class ToolResponseTests(unittest.TestCase):
                         "cached": True,
                     }
                 ],
-                "max_inline_section_characters": 3000,
-                "max_inline_full_document_characters": 10000,
+                "max_inline_characters_per_call": 20000,
                 "cache_hit": True,
             },
         )
@@ -436,7 +435,7 @@ class ToolResponseTests(unittest.TestCase):
         self.assertEqual(response["requested_section_ids"], ["sec_1", "sec_missing"])
         self.assertEqual(response["missing_section_ids"], ["sec_missing"])
 
-    def test_content_response_returns_manifest_for_large_section(self) -> None:
+    def test_content_response_returns_manifest_for_section_over_budget(self) -> None:
         response = get_document_content_response(
             "doc_123",
             [
@@ -444,8 +443,8 @@ class ToolResponseTests(unittest.TestCase):
                     {
                         "section_id": "sec_1",
                         "section_title": "Risk",
-                        "character_count": 3001,
-                        "content": "x" * 3001,
+                        "character_count": 20001,
+                        "content": "x" * 20001,
                     },
                     "momonga://documents/doc_123/sections/sec_1",
                 )
@@ -460,9 +459,9 @@ class ToolResponseTests(unittest.TestCase):
             {
                 "section_id": "sec_1",
                 "section_title": "Risk",
-                "character_count": 3001,
+                "character_count": 20001,
                 "content_mode": "manifest",
-                "reason": "section_exceeds_inline_threshold",
+                "reason": "inline_budget_exceeded",
                 "content_available_in_cache": True,
                 "recommended_tools": ["search_section_contents", "get_section_window"],
                 "next_action": {
@@ -481,7 +480,7 @@ class ToolResponseTests(unittest.TestCase):
         )
         self.assertNotIn("content", response["content_sections"][0])
 
-    def test_content_response_inlines_full_document_up_to_full_document_threshold(self) -> None:
+    def test_content_response_inlines_full_document_within_budget(self) -> None:
         response = get_document_content_response(
             "doc_123",
             [
@@ -504,7 +503,7 @@ class ToolResponseTests(unittest.TestCase):
         self.assertEqual(section["content_mode"], "inline")
         self.assertEqual(section["content"], "x" * 9000)
 
-    def test_content_response_returns_manifest_for_full_document_over_threshold(self) -> None:
+    def test_content_response_returns_manifest_for_full_document_over_budget(self) -> None:
         response = get_document_content_response(
             "doc_123",
             [
@@ -512,8 +511,8 @@ class ToolResponseTests(unittest.TestCase):
                     {
                         "section_id": "__mcp_full_document__",
                         "section_title": "Full document",
-                        "character_count": 10001,
-                        "content": "x" * 10001,
+                        "character_count": 20001,
+                        "content": "x" * 20001,
                     },
                     "momonga://documents/doc_123/sections/__mcp_full_document__",
                 )
@@ -525,10 +524,10 @@ class ToolResponseTests(unittest.TestCase):
 
         section = response["content_sections"][0]
         self.assertEqual(section["content_mode"], "manifest")
-        self.assertEqual(section["reason"], "section_exceeds_inline_threshold")
+        self.assertEqual(section["reason"], "inline_budget_exceeded")
         self.assertNotIn("content", section)
 
-    def test_content_response_inlines_multiple_small_sections_without_total_budget(self) -> None:
+    def test_content_response_inlines_multiple_sections_within_budget(self) -> None:
         response = get_document_content_response(
             "doc_123",
             [
@@ -559,7 +558,7 @@ class ToolResponseTests(unittest.TestCase):
         self.assertEqual(response["content_sections"][1]["content"], "efgh")
         self.assertEqual(response["content_sections"][1]["content_mode"], "inline")
 
-    def test_content_response_uses_section_limit_even_after_small_sections(self) -> None:
+    def test_content_response_returns_manifest_for_large_section_after_small_sections(self) -> None:
         response = get_document_content_response(
             "doc_123",
             [
@@ -574,8 +573,8 @@ class ToolResponseTests(unittest.TestCase):
                 (
                     {
                         "section_id": "sec_2",
-                        "character_count": 3001,
-                        "content": "x" * 3001,
+                        "character_count": 20001,
+                        "content": "x" * 20001,
                     },
                     "momonga://documents/doc_123/sections/sec_2",
                 ),
@@ -590,9 +589,9 @@ class ToolResponseTests(unittest.TestCase):
             manifest_section,
             {
                 "section_id": "sec_2",
-                "character_count": 3001,
+                "character_count": 20001,
                 "content_mode": "manifest",
-                "reason": "section_exceeds_inline_threshold",
+                "reason": "inline_budget_exceeded",
                 "content_available_in_cache": True,
                 "recommended_tools": ["search_section_contents", "get_section_window"],
                 "next_action": {
@@ -612,6 +611,34 @@ class ToolResponseTests(unittest.TestCase):
         self.assertNotIn("content", manifest_section)
         self.assertNotIn("truncated", manifest_section)
         self.assertNotIn("next_offset", manifest_section)
+
+    def test_content_response_shares_inline_budget_across_sections_in_request_order(self) -> None:
+        response = get_document_content_response(
+            "doc_123",
+            [
+                (
+                    {"section_id": "sec_1", "character_count": 12000, "content": "a" * 12000},
+                    "momonga://documents/doc_123/sections/sec_1",
+                ),
+                (
+                    {"section_id": "sec_2", "character_count": 12000, "content": "b" * 12000},
+                    "momonga://documents/doc_123/sections/sec_2",
+                ),
+                (
+                    {"section_id": "sec_3", "character_count": 8000, "content": "c" * 8000},
+                    "momonga://documents/doc_123/sections/sec_3",
+                ),
+            ],
+            cache_hit=False,
+            cached_sections=False,
+            return_content=True,
+        )
+
+        sections = response["content_sections"]
+        self.assertEqual([section["content_mode"] for section in sections], ["inline", "manifest", "inline"])
+        self.assertEqual(sections[1]["reason"], "inline_budget_exceeded")
+        self.assertNotIn("content", sections[1])
+        self.assertEqual(sections[2]["content"], "c" * 8000)
 
     def test_get_document_toc_returns_sections_for_small_toc_by_default(self) -> None:
         response = get_document_toc_response(

@@ -11,8 +11,8 @@ Momonga Search MCP は、企業公表資料・経済ニュースを LLM/Agent �
 - transportはstdioです。
 - documents系toolとnews系toolは分けて提供します。
 - documents/newsの統合検索や統合ランキングは行いません。
-- 本文、page image、original fileの取得は文字数、section数、件数の上限で制御します。
-- `get_document_content` はsectionをcacheし、小さいsectionだけinline返却します。大きいsectionはmanifestを返し、`search_section_contents` / `get_section_window` で必要箇所だけ読む導線にします。
+- 本文、page image、original fileの取得は文字数と件数の上限で制御します。
+- `get_document_content` はsectionをcacheし、1回あたり合計20000文字までinline返却します。収まらないsectionはmanifestを返し、`search_section_contents` / `get_section_window` で必要箇所だけ読む導線にします。
 - `momonga://...` resource URIは根拠所在IDとして扱います。`resources/read` はcache済みsection本文の全文を返しません。
 - subagent実行が使える場合も、起動・分配・統合はhost/client側の責務です。MCP serverはbounded retrievalと根拠ID提供に集中します。
 - 画像・元ファイル・大量取得は明示フラグを要求します。

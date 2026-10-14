@@ -248,7 +248,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
     },
     "get_document_content": {
         "description": (
-            "Retrieve body text for a known document_id. Section IDs come from get_document_toc or search_documents. Omitting section_ids requires allow_full_document=true; full documents up to 10000 characters can be returned inline. For larger documents select needed sections, at most 5 per call. Sections up to 3000 characters are inline; larger sections return manifests after caching the body. Read them with search_section_contents/get_section_window. resource URIs identify evidence and resources/read returns manifests, not full body text. Content is cached even with return_content=false."
+            "Retrieve body text for a known document_id. Section IDs come from get_document_toc or search_documents. Omitting section_ids requires allow_full_document=true. Request all needed sections in one call: body text is returned inline up to 20000 characters per call in total, in request order; sections that do not fit return manifests after caching the body. Read them with search_section_contents/get_section_window. resource URIs identify evidence and resources/read returns manifests, not full body text. Content is cached even with return_content=false."
         ),
         "inputSchema": {
             "type": "object",
@@ -258,11 +258,9 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
                     "type": "array",
                     "items": {"type": "string"},
                     "minItems": 1,
-                    "maxItems": 5,
                     "description": (
                         "Optional section IDs from get_document_toc or search_documents. "
-                        "Omit only with allow_full_document=true when retrieving the full document as a synthetic cached section is intentional. "
-                        "MCP runtime limit is 5."
+                        "Omit only with allow_full_document=true when retrieving the full document as a synthetic cached section is intentional."
                     ),
                 },
                 "return_content": {
