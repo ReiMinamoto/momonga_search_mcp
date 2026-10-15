@@ -141,7 +141,10 @@ class ServerTests(unittest.TestCase):
                 api_client=api_client,
             )
 
-            api_client.response = {"document_id": "doc_123", "toc": [{"section_id": "sec_1", "section_title": "Risk"}]}
+            api_client.response = {
+                "document_id": "doc_123",
+                "toc": [{"section_id": "sec_1", "section_title": "Risk", "heading_path": ["Risk"], "character_count": 4}],
+            }
             server.handle_message(
                 {
                     "jsonrpc": "2.0",

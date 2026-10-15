@@ -6,8 +6,6 @@ from collections.abc import Callable
 import json
 from typing import Any
 
-from momonga_search_mcp.cache import CachedResource
-
 DOCUMENT_FIELDS = (
     "document_id",
     "document_family",
@@ -33,13 +31,17 @@ NEWS_FIELDS = (
     "updated_at",
     "related_issuers",
     "references",
+    "score",
 )
 
 CONTENT_SECTION_FIELDS = ("section_id", "section_title", "character_count", "content")
-TOC_FIELDS = ("section_id", "section_title", "heading_path", "character_count", "page_number")
-MAX_DIRECT_TOC_SECTIONS = 50
-MAX_INLINE_SECTION_CHARACTERS = 3_000
-MAX_INLINE_FULL_DOCUMENT_CHARACTERS = 10_000
+# get_document_toc lists every section while the text stays within this size;
+# beyond it, headings only. Even large yuho TOCs fit (sample max ~16,000).
+MAX_TOC_CHARACTERS = 20_000
+# Inline body text shared by all sections of one get_document_content call.
+# Japanese body text costs up to about one token per character, so this stays under
+# typical MCP client output caps (Claude Code: 25,000 tokens).
+MAX_INLINE_CHARACTERS_PER_CALL = 20_000
 FULL_DOCUMENT_SECTION_ID = "__mcp_full_document__"
 
 
@@ -100,36 +102,24 @@ def success_response(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def get_document_toc_response(
     payload: dict[str, Any],
-    resource: CachedResource,
     *,
-    cache_hit: bool,
     path_prefix: list[str] | None = None,
-    max_depth: int = 2,
-    include_sections: bool = False,
 ) -> dict[str, Any]:
-    toc_entries = [_pick(item, TOC_FIELDS) for item in _list(payload, "toc")]
-    selected_entries = _filter_toc_by_path_prefix(toc_entries, path_prefix or [])
-    toc_mode = _toc_mode(selected_entries, path_prefix=path_prefix, include_sections=include_sections)
-    toc_response = (
-        selected_entries
-        if toc_mode == "sections"
-        else _build_toc_outline(selected_entries, max_depth=max_depth, include_sections=include_sections)
-    )
+    entries = _filter_toc_by_path_prefix(_list(payload, "toc"), path_prefix or [])
+    toc_text = _toc_sections_text(entries)
+    toc_mode = "sections"
+    if len(toc_text) > MAX_TOC_CHARACTERS:
+        toc_text = _toc_outline_text(entries, depth_limit=len(path_prefix or []) + 2)
+        toc_mode = "outline"
     response = {
         "ok": True,
         **_pick(payload, ("document_id",)),
         "toc_mode": toc_mode,
-        "path_prefix": path_prefix or [],
-        "max_depth": max_depth,
-        "include_sections": include_sections,
-        "selection_policy": _toc_selection_policy(toc_mode, selected_entries, path_prefix=path_prefix),
-        "toc": toc_response,
-        "resource_uri": resource.resource_uri,
-        "cache_hit": cache_hit,
+        "section_count": len(entries),
+        "toc": toc_text,
     }
-    next_action_template = _toc_next_action_template(response.get("document_id"), toc_mode)
-    if next_action_template is not None:
-        response["next_action_template"] = next_action_template
+    if path_prefix:
+        response["path_prefix"] = path_prefix
     return response
 
 
@@ -144,6 +134,7 @@ def get_document_content_response(
     missing_section_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     section_responses = []
+    inline_budget = MAX_INLINE_CHARACTERS_PER_CALL
     for section, resource_uri in content_sections:
         section_response = _content_section_response(
             section,
@@ -151,15 +142,17 @@ def get_document_content_response(
             resource_uri=resource_uri,
             cached=cached_sections,
             return_content=return_content,
+            inline_budget=inline_budget,
         )
+        if section_response.get("content_mode") == "inline":
+            inline_budget -= _section_text_length(section, section_response["content"])
         section_responses.append(section_response)
 
     response: dict[str, Any] = {
         "ok": True,
         "document_id": document_id,
         "content_sections": section_responses,
-        "max_inline_section_characters": MAX_INLINE_SECTION_CHARACTERS,
-        "max_inline_full_document_characters": MAX_INLINE_FULL_DOCUMENT_CHARACTERS,
+        "max_inline_characters_per_call": MAX_INLINE_CHARACTERS_PER_CALL,
         "cache_hit": cache_hit,
     }
     if requested_section_ids is not None:
@@ -176,24 +169,20 @@ def _content_section_response(
     resource_uri: str,
     cached: bool,
     return_content: bool,
+    inline_budget: int,
 ) -> dict[str, Any]:
     fields = CONTENT_SECTION_FIELDS if return_content else tuple(field for field in CONTENT_SECTION_FIELDS if field != "content")
     response = _pick(section, fields)
     if return_content:
         content = response.get("content")
         if isinstance(content, str):
-            inline_limit = (
-                MAX_INLINE_FULL_DOCUMENT_CHARACTERS
-                if section.get("section_id") == FULL_DOCUMENT_SECTION_ID
-                else MAX_INLINE_SECTION_CHARACTERS
-            )
-            if _section_text_length(section, content) > inline_limit:
+            if _section_text_length(section, content) > inline_budget:
                 return _content_section_manifest_response(
                     section,
                     document_id=document_id,
                     resource_uri=resource_uri,
                     cached=cached,
-                    reason="section_exceeds_inline_threshold",
+                    reason="inline_budget_exceeded",
                 )
             response["content_mode"] = "inline"
     response["resource_uri"] = resource_uri
@@ -226,6 +215,13 @@ def _metadata_next_action(response: dict[str, Any]) -> dict[str, Any] | None:
     document_id = response.get("document_id")
     reference_url = response.get("reference_url")
     if content_status == "ready" and isinstance(document_id, str) and document_id:
+        character_count = response.get("character_count")
+        if type(character_count) is int and character_count <= MAX_INLINE_CHARACTERS_PER_CALL:
+            return {
+                "status": "ready",
+                "recommended_tools": ["get_document_content"],
+                "argument_hints": {"document_id": document_id, "allow_full_document": True},
+            }
         return {
             "status": "ready",
             "recommended_tools": ["get_document_toc", "get_document_content"],
@@ -307,105 +303,45 @@ def _filter_toc_by_path_prefix(toc: list[dict[str, Any]], path_prefix: list[str]
     ]
 
 
-def _toc_mode(toc: list[dict[str, Any]], *, path_prefix: list[str] | None, include_sections: bool) -> str:
-    if path_prefix:
-        return "subtree"
-    if include_sections or len(toc) <= MAX_DIRECT_TOC_SECTIONS:
-        return "sections"
-    return "outline"
+def _toc_sections_text(entries: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    previous_path: list[str] = []
+    for entry in entries:
+        heading_path = entry["heading_path"]
+        shared = 0
+        while shared < min(len(previous_path), len(heading_path) - 1) and previous_path[shared] == heading_path[shared]:
+            shared += 1
+        for depth in range(shared, len(heading_path) - 1):
+            lines.append("  " * depth + heading_path[depth])
+        label = entry.get("section_title") or heading_path[-1]
+        fields = [label, entry["section_id"], str(entry["character_count"])]
+        if type(entry.get("page_number")) is int:
+            fields.append(f"p{entry['page_number']}")
+        lines.append("  " * (len(heading_path) - 1) + " | ".join(fields))
+        previous_path = heading_path
+    return "\n".join(lines)
 
 
-def _toc_selection_policy(
-    toc_mode: str,
-    toc: list[dict[str, Any]],
-    *,
-    path_prefix: list[str] | None,
-) -> dict[str, Any]:
-    if path_prefix:
-        reason = "path_prefix_requested"
-    elif toc_mode == "sections":
-        reason = "toc_is_small"
-    else:
-        reason = "toc_is_large"
-    return {
-        "mode": "auto",
-        "reason": reason,
-        "max_direct_toc_sections": MAX_DIRECT_TOC_SECTIONS,
-        "selected_toc_entry_count": len(toc),
-    }
-
-
-def _toc_next_action_template(
-    document_id: Any,
-    toc_mode: str,
-) -> dict[str, Any] | None:
-    if toc_mode != "outline" or not isinstance(document_id, str) or not document_id:
-        return None
-
-    return {
-        "tool": "get_document_toc",
-        "argument_hints": {
-            "document_id": document_id,
-            "path_prefix": "Choose a relevant heading_path from the returned toc outline.",
-            "include_sections": True,
-        },
-    }
-
-
-def _build_toc_outline(toc: list[dict[str, Any]], *, max_depth: int, include_sections: bool) -> list[dict[str, Any]]:
-    root: dict[str, Any] = {"children": {}, "sections": []}
-    for section in toc:
-        heading_path = section.get("heading_path")
-        if not isinstance(heading_path, list) or not heading_path:
-            heading_path = [section.get("section_title") or section.get("section_id") or "Untitled"]
-        heading_path = [item for item in heading_path if isinstance(item, str)]
-        if not heading_path:
-            continue
-
+def _toc_outline_text(entries: list[dict[str, Any]], *, depth_limit: int) -> str:
+    # heading -> [section count, character count, child headings], children in document order
+    root: dict[str, list[Any]] = {}
+    for entry in entries:
         node = root
-        current_path = []
-        for heading in heading_path:
-            current_path.append(heading)
-            node = node["children"].setdefault(
-                heading,
-                {"heading_title": heading, "heading_path": list(current_path), "children": {}, "sections": []},
-            )
-        node["sections"].append(section)
+        for heading in entry["heading_path"][:depth_limit]:
+            child = node.setdefault(heading, [0, 0, {}])
+            child[0] += 1
+            child[1] += entry["character_count"]
+            node = child[2]
 
-    depth_limit = max(2, max_depth)
-    return [
-        _outline_node(child, depth_limit=depth_limit, include_sections=include_sections) for child in root["children"].values()
-    ]
+    lines: list[str] = []
 
+    def walk(node: dict[str, list[Any]], depth: int) -> None:
+        for heading, (section_count, character_count, children) in node.items():
+            lines.append("  " * depth + f"{heading} | {section_count} sections | {character_count}")
+            walk(children, depth + 1)
 
-def _outline_node(node: dict[str, Any], *, depth_limit: int, include_sections: bool) -> dict[str, Any]:
-    children = list(node["children"].values())
-    sections = _collect_sections(node)
-    page_numbers = [section["page_number"] for section in sections if type(section.get("page_number")) is int]
-    result: dict[str, Any] = {
-        "heading_title": node["heading_title"],
-        "heading_path": node["heading_path"],
-        "section_count": len(sections),
-        "total_character_count": sum(
-            section["character_count"] for section in sections if type(section.get("character_count")) is int
-        ),
-        "page_range": {"start": min(page_numbers), "end": max(page_numbers)} if page_numbers else None,
-        "has_children": bool(children),
-    }
-    if include_sections:
-        result["sections"] = [_pick(section, TOC_FIELDS) for section in sections]
-    if len(node["heading_path"]) < depth_limit and children:
-        result["children"] = [
-            _outline_node(child, depth_limit=depth_limit, include_sections=include_sections) for child in children
-        ]
-    return result
-
-
-def _collect_sections(node: dict[str, Any]) -> list[dict[str, Any]]:
-    sections = list(node["sections"])
-    for child in node["children"].values():
-        sections.extend(_collect_sections(child))
-    return sections
+    walk(root, 0)
+    return "\n".join(lines)
 
 
 def _pick(item: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:

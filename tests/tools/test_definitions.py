@@ -73,13 +73,13 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertEqual(schemas["search_documents"]["properties"]["latest_only"]["type"], "boolean")
         self.assertEqual(schemas["search_news"]["properties"]["top_k"]["maximum"], 25)
 
-    def test_get_document_content_schema_allows_optional_bounded_sections_without_offset(self) -> None:
+    def test_get_document_content_schema_allows_optional_sections_without_offset(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
         schema = schemas["get_document_content"]
 
         self.assertEqual(schema["required"], ["document_id"])
         self.assertEqual(schema["properties"]["section_ids"]["minItems"], 1)
-        self.assertEqual(schema["properties"]["section_ids"]["maxItems"], 5)
+        self.assertNotIn("maxItems", schema["properties"]["section_ids"])
         self.assertEqual(schema["properties"]["allow_full_document"]["type"], "boolean")
         self.assertNotIn("max_chars", schema["properties"])
         self.assertNotIn("offset", schema["properties"])
@@ -99,15 +99,13 @@ class ToolDefinitionTests(unittest.TestCase):
         self.assertEqual(window_schema["properties"]["offset"]["minimum"], 0)
         self.assertEqual(window_schema["properties"]["max_characters"]["maximum"], 5000)
 
-    def test_get_document_toc_schema_allows_outline_options(self) -> None:
+    def test_get_document_toc_schema_takes_document_id_and_optional_path_prefix(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}
         schema = schemas["get_document_toc"]
 
         self.assertEqual(schema["required"], ["document_id"])
+        self.assertEqual(set(schema["properties"]), {"document_id", "path_prefix"})
         self.assertEqual(schema["properties"]["path_prefix"]["items"]["type"], "string")
-        self.assertEqual(schema["properties"]["max_depth"]["minimum"], 2)
-        self.assertEqual(schema["properties"]["max_depth"]["maximum"], 6)
-        self.assertEqual(schema["properties"]["include_sections"]["type"], "boolean")
 
     def test_file_download_schemas_require_explicit_flags(self) -> None:
         schemas = {tool["name"]: tool["inputSchema"] for tool in tool_definitions()}

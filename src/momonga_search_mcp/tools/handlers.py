@@ -345,8 +345,6 @@ def _call_get_document_toc(
 ) -> dict[str, Any]:
     document_id = _required_string(arguments, "document_id")
     path_prefix = arguments.get("path_prefix")
-    max_depth = arguments.get("max_depth", 2)
-    include_sections = arguments.get("include_sections", False)
     if cache_manager_getter is None:
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_toc")
 
@@ -354,29 +352,10 @@ def _call_get_document_toc(
     cached_toc = cache_manager.get_document_toc(document_id)
     if cached_toc is not None:
         payload = cache_manager.read_json(cached_toc)
-        return tool_json_result(
-            get_document_toc_response(
-                payload,
-                cached_toc,
-                cache_hit=True,
-                path_prefix=path_prefix if isinstance(path_prefix, list) else None,
-                max_depth=max_depth if type(max_depth) is int else 2,
-                include_sections=include_sections if type(include_sections) is bool else False,
-            )
-        )
-
-    payload = api_client.get(f"/documents/{_quote_path_component(document_id)}/toc")
-    resource = cache_manager.store_document_toc(document_id, payload)
-    return tool_json_result(
-        get_document_toc_response(
-            payload,
-            resource,
-            cache_hit=False,
-            path_prefix=path_prefix if isinstance(path_prefix, list) else None,
-            max_depth=max_depth if type(max_depth) is int else 2,
-            include_sections=include_sections if type(include_sections) is bool else False,
-        )
-    )
+    else:
+        payload = api_client.get(f"/documents/{_quote_path_component(document_id)}/toc")
+        cache_manager.store_document_toc(document_id, payload)
+    return tool_json_result(get_document_toc_response(payload, path_prefix=path_prefix))
 
 
 def _call_get_document_content(
@@ -717,11 +696,6 @@ def _validate_runtime_limits(tool_name: str, arguments: dict[str, Any], config: 
     if tool_name in {"search_documents", "search_news"} and isinstance(top_k, int):
         if top_k > config.max_search_top_k:
             raise ValueError(f"top_k must be less than or equal to {config.max_search_top_k}")
-
-    section_ids = arguments.get("section_ids")
-    if tool_name == "get_document_content" and isinstance(section_ids, list):
-        if len(section_ids) > config.max_sections_per_content_call:
-            raise ValueError(f"section_ids must contain at most {config.max_sections_per_content_call} items")
 
 
 def _has_present_value(arguments: dict[str, Any], name: str) -> bool:

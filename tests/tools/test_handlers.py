@@ -125,9 +125,13 @@ class ToolHandlerTests(unittest.TestCase):
                 api_client.calls[-1], ("POST" if name.startswith("search_") else "GET", expected_path, expected_payload)
             )
 
-    def test_get_document_toc_stores_response(self) -> None:
+    def test_get_document_toc_fetches_and_caches_toc(self) -> None:
         api_client = FakeApiClient()
-        api_client.response = {"document_id": "doc_123", "title": "Report", "toc": [{"section_id": "sec_1"}]}
+        api_client.response = {
+            "document_id": "doc_123",
+            "title": "Report",
+            "toc": [{"section_id": "sec_1", "section_title": "Risk", "heading_path": ["Risk"], "character_count": 10}],
+        }
         with TemporaryDirectory() as temp_dir:
             cache_manager = CacheManager(Path(temp_dir))
 
@@ -141,8 +145,7 @@ class ToolHandlerTests(unittest.TestCase):
             cached_toc = cache_manager.get_document_toc("doc_123")
 
         self.assertEqual(api_client.calls, [("GET", "/documents/doc_123/toc", None)])
-        self.assertFalse(payload["cache_hit"])
-        self.assertEqual(payload["resource_uri"], "momonga://documents/doc_123/toc")
+        self.assertEqual(payload["toc"], "Risk | sec_1 | 10")
         self.assertNotIn("title", payload)
         self.assertIsNotNone(cached_toc)
 
@@ -157,34 +160,11 @@ class ToolHandlerTests(unittest.TestCase):
                 {"name": "get_document_toc", "arguments": {"document_id": "doc/with space"}},
                 cache_manager_getter=lambda: cache_manager,
             )
-            cached_toc = cache_manager.get_document_toc("doc/with space")
 
         self.assertEqual(api_client.calls, [("GET", "/documents/doc%2Fwith%20space/toc", None)])
         self.assertNotIn("isError", response)
-        self.assertIsNotNone(cached_toc)
-        self.assertEqual(json.loads(response["content"][0]["text"])["resource_uri"], "momonga://documents/doc%2Fwith%20space/toc")
 
-    def test_get_document_toc_returns_cache_hit_without_api_call(self) -> None:
-        api_client = FakeApiClient()
-        with TemporaryDirectory() as temp_dir:
-            cache_manager = CacheManager(Path(temp_dir))
-            cache_manager.store_document_toc(
-                "doc_123",
-                {"document_id": "doc_123", "toc": [{"section_id": "sec_1", "heading_path": ["Business"]}]},
-            )
-
-            response = call_tool(
-                api_client,
-                {"name": "get_document_toc", "arguments": {"document_id": "doc_123"}},
-                cache_manager_getter=lambda: cache_manager,
-            )
-
-        payload = json.loads(response["content"][0]["text"])
-        self.assertEqual(api_client.calls, [])
-        self.assertTrue(payload["cache_hit"])
-        self.assertEqual(payload["toc"][0]["heading_path"], ["Business"])
-
-    def test_get_document_toc_applies_outline_options_to_cache_hit(self) -> None:
+    def test_get_document_toc_serves_cached_toc_without_api_call(self) -> None:
         api_client = FakeApiClient()
         with TemporaryDirectory() as temp_dir:
             cache_manager = CacheManager(Path(temp_dir))
@@ -198,14 +178,12 @@ class ToolHandlerTests(unittest.TestCase):
                             "section_title": "Risk",
                             "heading_path": ["Business", "Risk"],
                             "character_count": 100,
-                            "page_number": 2,
                         },
                         {
                             "section_id": "sec_2",
-                            "section_title": "Governance",
-                            "heading_path": ["Governance"],
+                            "section_title": "Board",
+                            "heading_path": ["Governance", "Board"],
                             "character_count": 50,
-                            "page_number": 8,
                         },
                     ],
                 },
@@ -213,22 +191,13 @@ class ToolHandlerTests(unittest.TestCase):
 
             response = call_tool(
                 api_client,
-                {
-                    "name": "get_document_toc",
-                    "arguments": {
-                        "document_id": "doc_123",
-                        "path_prefix": ["Business"],
-                        "max_depth": 2,
-                        "include_sections": True,
-                    },
-                },
+                {"name": "get_document_toc", "arguments": {"document_id": "doc_123", "path_prefix": ["Business"]}},
                 cache_manager_getter=lambda: cache_manager,
             )
 
         payload = json.loads(response["content"][0]["text"])
         self.assertEqual(api_client.calls, [])
-        self.assertEqual(payload["toc_mode"], "subtree")
-        self.assertEqual(payload["toc"][0]["children"][0]["sections"][0]["section_id"], "sec_1")
+        self.assertEqual(payload["toc"], "Business\n  Risk | sec_1 | 100")
 
     def test_get_document_content_stores_sections_and_returns_payload(self) -> None:
         api_client = FakeApiClient()
@@ -394,8 +363,8 @@ class ToolHandlerTests(unittest.TestCase):
                 {
                     "section_id": "sec_1",
                     "section_title": "Risk",
-                    "character_count": 3001,
-                    "content": "risk " + ("x" * 2996),
+                    "character_count": 20001,
+                    "content": "risk " + ("x" * 19996),
                 }
             ],
         }
@@ -417,7 +386,7 @@ class ToolHandlerTests(unittest.TestCase):
 
         section = payload["content_sections"][0]
         self.assertEqual(section["content_mode"], "manifest")
-        self.assertEqual(section["reason"], "section_exceeds_inline_threshold")
+        self.assertEqual(section["reason"], "inline_budget_exceeded")
         self.assertTrue(section["content_available_in_cache"])
         self.assertEqual(section["recommended_tools"], ["search_section_contents", "get_section_window"])
         self.assertEqual(section["next_action"]["tool"], "search_section_contents")
@@ -426,7 +395,7 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(section["next_action"]["fallback_tool"], "get_section_window")
         self.assertEqual(section["source_resource_uri"], "momonga://documents/doc_123/sections/sec_1")
         self.assertNotIn("content", section)
-        self.assertEqual(cached_payload["content"], "risk " + ("x" * 2996))
+        self.assertEqual(cached_payload["content"], "risk " + ("x" * 19996))
 
     def test_search_section_contents_returns_bounded_matches_from_cache(self) -> None:
         api_client = FakeApiClient()
@@ -810,11 +779,34 @@ class ToolHandlerTests(unittest.TestCase):
         self.assertEqual(payload["content_sections"][0]["content_mode"], "inline")
         self.assertIsNotNone(cached_section)
 
-    def test_get_document_content_validates_section_count_and_rejects_offset(self) -> None:
+    def test_get_document_content_returns_many_sections_in_one_call(self) -> None:
+        section_ids = [f"sec_{index}" for index in range(1, 10)]
+        api_client = FakeApiClient()
+        api_client.response = {
+            "document_id": "doc_123",
+            "content_sections": [
+                {"section_id": section_id, "section_title": section_id, "character_count": 4, "content": "body"}
+                for section_id in section_ids
+            ],
+        }
+        with TemporaryDirectory() as temp_dir:
+            cache_manager = CacheManager(Path(temp_dir))
+            response = call_tool(
+                api_client,
+                {"name": "get_document_content", "arguments": {"document_id": "doc_123", "section_ids": section_ids}},
+                cache_manager_getter=lambda: cache_manager,
+            )
+        payload = json.loads(response["content"][0]["text"])
+
+        self.assertNotIn("isError", response)
+        self.assertEqual(api_client.calls, [("GET", "/documents/doc_123/content", {"sections": section_ids})])
+        self.assertEqual([section["section_id"] for section in payload["content_sections"]], section_ids)
+        self.assertEqual({section["content_mode"] for section in payload["content_sections"]}, {"inline"})
+
+    def test_get_document_content_requires_full_document_flag_and_rejects_offset(self) -> None:
         invalid_calls = [
             ({"document_id": "doc_123"}, "allow_full_document=true is required when section_ids is omitted"),
             ({"document_id": "doc_123", "section_ids": ["sec_1"], "offset": 0}, "unknown arguments: offset"),
-            ({"document_id": "doc_123", "section_ids": ["sec_1"] * 6}, "section_ids must contain at most 5 items"),
         ]
 
         for arguments, expected_message in invalid_calls:
@@ -824,15 +816,10 @@ class ToolHandlerTests(unittest.TestCase):
             self.assertTrue(response["isError"])
             self.assertEqual(payload["error"]["message"], expected_message)
 
-    def test_runtime_limits_reject_large_result_and_section_requests(self) -> None:
+    def test_runtime_limits_reject_large_result_requests(self) -> None:
         calls = [
             ("list_documents", {"security_codes": ["8058"], "limit": 26}, "limit must be less than or equal to 25"),
             ("search_documents", {"query": "価格転嫁", "top_k": 26}, "top_k must be less than or equal to 25"),
-            (
-                "get_document_content",
-                {"document_id": "doc_123", "section_ids": ["sec_1", "sec_2", "sec_3", "sec_4", "sec_5", "sec_6"]},
-                "section_ids must contain at most 5 items",
-            ),
         ]
 
         for name, arguments, expected_message in calls:
