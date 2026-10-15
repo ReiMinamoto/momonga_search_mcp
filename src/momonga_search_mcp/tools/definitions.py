@@ -174,7 +174,13 @@ DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
         },
     },
     "get_document_toc": {
-        "description": "Get a compact TOC outline or a focused subtree for content_status=ready documents.",
+        "description": (
+            "Get the table of contents of a content_status=ready document as indented text: one line per heading, "
+            "two spaces per level. Lines for readable sections end with ' | section_id | character_count' "
+            "(and ' | p<page>' when known); pass those section_ids to get_document_content. "
+            "When the full list would exceed 20000 characters, toc_mode=outline lists headings only as "
+            "'heading | section count | character count'; call again with path_prefix to list the sections under one heading."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -182,17 +188,7 @@ DOCUMENT_LOOKUP_TOOLS: dict[str, dict[str, Any]] = {
                 "path_prefix": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Optional heading path prefix used to return only the matching TOC subtree.",
-                },
-                "max_depth": {
-                    "type": "integer",
-                    "minimum": 2,
-                    "maximum": 6,
-                    "description": "Maximum heading depth to expand in the returned outline. Defaults to 2.",
-                },
-                "include_sections": {
-                    "type": "boolean",
-                    "description": "Whether to include leaf section selectors under returned outline nodes. Defaults to false.",
+                    "description": "Heading titles from the top level down to one heading, exactly as shown in the TOC. Returns only that subtree.",
                 },
             },
             "required": ["document_id"],
@@ -248,7 +244,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
     },
     "get_document_content": {
         "description": (
-            "Retrieve body text for a known document_id. Section IDs come from get_document_toc or search_documents. Omitting section_ids requires allow_full_document=true. Request all needed sections in one call: body text is returned inline up to 20000 characters per call in total, in request order; sections that do not fit return manifests after caching the body. Read them with search_section_contents/get_section_window. resource URIs identify evidence and resources/read returns manifests, not full body text. Content is cached even with return_content=false."
+            "Retrieve body text for a known document_id. Section IDs come from get_document_toc or search_documents. To read a whole document, omit section_ids and set allow_full_document=true. Request all needed sections in one call: body text is returned inline up to 20000 characters per call in total, in request order; sections that do not fit return manifests after caching the body. Read them with search_section_contents/get_section_window. resource URIs identify evidence and resources/read returns manifests, not full body text. Content is cached even with return_content=false."
         ),
         "inputSchema": {
             "type": "object",
@@ -260,7 +256,7 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
                     "minItems": 1,
                     "description": (
                         "Optional section IDs from get_document_toc or search_documents. "
-                        "Omit only with allow_full_document=true when retrieving the full document as a synthetic cached section is intentional."
+                        "Omit together with allow_full_document=true to read the whole document."
                     ),
                 },
                 "return_content": {
@@ -270,8 +266,8 @@ RETRIEVAL_TOOLS: dict[str, dict[str, Any]] = {
                 "allow_full_document": {
                     "type": "boolean",
                     "description": (
-                        "Whether to allow full-document retrieval when section_ids is omitted. "
-                        "Defaults to false. Use only when caching the full document as one synthetic section is intentional."
+                        "Required when section_ids is omitted; returns the whole document as one section. "
+                        "Documents with character_count up to 20000 come back inline in one call."
                     ),
                 },
             },

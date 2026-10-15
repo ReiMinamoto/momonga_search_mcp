@@ -66,10 +66,7 @@ def _toc_manifest(uri: str, document_id: str, payload: dict[str, Any]) -> dict[s
         "resource_type": "toc",
         "toc_available_in_cache": True,
         "toc_entry_count": len(toc_entries),
-        "read_policy": (
-            "Use get_document_toc with path_prefix/max_depth options for outline or subtree retrieval; "
-            "full cached TOC JSON is not returned by resources/read."
-        ),
+        "read_policy": ("Use get_document_toc to read the TOC; full cached TOC JSON is not returned by resources/read."),
         "source_resource_uri": uri,
     }
 

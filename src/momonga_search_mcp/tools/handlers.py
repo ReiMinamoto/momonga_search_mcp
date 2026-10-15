@@ -345,8 +345,6 @@ def _call_get_document_toc(
 ) -> dict[str, Any]:
     document_id = _required_string(arguments, "document_id")
     path_prefix = arguments.get("path_prefix")
-    max_depth = arguments.get("max_depth", 2)
-    include_sections = arguments.get("include_sections", False)
     if cache_manager_getter is None:
         raise ToolSetupError("cache manager is unavailable; MCP cache_dir is not configured for get_document_toc")
 
@@ -354,29 +352,10 @@ def _call_get_document_toc(
     cached_toc = cache_manager.get_document_toc(document_id)
     if cached_toc is not None:
         payload = cache_manager.read_json(cached_toc)
-        return tool_json_result(
-            get_document_toc_response(
-                payload,
-                cached_toc,
-                cache_hit=True,
-                path_prefix=path_prefix if isinstance(path_prefix, list) else None,
-                max_depth=max_depth if type(max_depth) is int else 2,
-                include_sections=include_sections if type(include_sections) is bool else False,
-            )
-        )
-
-    payload = api_client.get(f"/documents/{_quote_path_component(document_id)}/toc")
-    resource = cache_manager.store_document_toc(document_id, payload)
-    return tool_json_result(
-        get_document_toc_response(
-            payload,
-            resource,
-            cache_hit=False,
-            path_prefix=path_prefix if isinstance(path_prefix, list) else None,
-            max_depth=max_depth if type(max_depth) is int else 2,
-            include_sections=include_sections if type(include_sections) is bool else False,
-        )
-    )
+    else:
+        payload = api_client.get(f"/documents/{_quote_path_component(document_id)}/toc")
+        cache_manager.store_document_toc(document_id, payload)
+    return tool_json_result(get_document_toc_response(payload, path_prefix=path_prefix))
 
 
 def _call_get_document_content(

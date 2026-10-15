@@ -18,7 +18,7 @@ MCP側では、巨大なtool responseを避けるために実行時上限を固�
 | --- | ---: |
 | list系toolの `limit` | `25` |
 | search系toolの `top_k` | `25` |
-| `get_document_toc` direct section count | `50`。超える場合は outline / subtree / aggregate を返す |
+| `get_document_toc` の目次テキスト | `20000` 文字。超える場合は上位2段の見出しだけを返し、`path_prefix` で絞り込む |
 | `get_document_content` 1回あたりの inline 本文 | 合計 `20000` 文字。要求順に詰め、収まらない section は本文を返さず manifest を返す。`section_ids` の件数に上限はなく、省略時は `allow_full_document=true` が必須 |
 | `search_section_contents.context_chars` | default `150`、hard max `300` |
 | `search_section_contents` match count | `15`。16件目が存在する場合は `matches_truncated=true` |

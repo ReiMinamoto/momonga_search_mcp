@@ -125,9 +125,13 @@ class ToolHandlerTests(unittest.TestCase):
                 api_client.calls[-1], ("POST" if name.startswith("search_") else "GET", expected_path, expected_payload)
             )
 
-    def test_get_document_toc_stores_response(self) -> None:
+    def test_get_document_toc_fetches_and_caches_toc(self) -> None:
         api_client = FakeApiClient()
-        api_client.response = {"document_id": "doc_123", "title": "Report", "toc": [{"section_id": "sec_1"}]}
+        api_client.response = {
+            "document_id": "doc_123",
+            "title": "Report",
+            "toc": [{"section_id": "sec_1", "section_title": "Risk", "heading_path": ["Risk"], "character_count": 10}],
+        }
         with TemporaryDirectory() as temp_dir:
             cache_manager = CacheManager(Path(temp_dir))
 
@@ -141,8 +145,7 @@ class ToolHandlerTests(unittest.TestCase):
             cached_toc = cache_manager.get_document_toc("doc_123")
 
         self.assertEqual(api_client.calls, [("GET", "/documents/doc_123/toc", None)])
-        self.assertFalse(payload["cache_hit"])
-        self.assertEqual(payload["resource_uri"], "momonga://documents/doc_123/toc")
+        self.assertEqual(payload["toc"], "Risk | sec_1 | 10")
         self.assertNotIn("title", payload)
         self.assertIsNotNone(cached_toc)
 
@@ -157,34 +160,11 @@ class ToolHandlerTests(unittest.TestCase):
                 {"name": "get_document_toc", "arguments": {"document_id": "doc/with space"}},
                 cache_manager_getter=lambda: cache_manager,
             )
-            cached_toc = cache_manager.get_document_toc("doc/with space")
 
         self.assertEqual(api_client.calls, [("GET", "/documents/doc%2Fwith%20space/toc", None)])
         self.assertNotIn("isError", response)
-        self.assertIsNotNone(cached_toc)
-        self.assertEqual(json.loads(response["content"][0]["text"])["resource_uri"], "momonga://documents/doc%2Fwith%20space/toc")
 
-    def test_get_document_toc_returns_cache_hit_without_api_call(self) -> None:
-        api_client = FakeApiClient()
-        with TemporaryDirectory() as temp_dir:
-            cache_manager = CacheManager(Path(temp_dir))
-            cache_manager.store_document_toc(
-                "doc_123",
-                {"document_id": "doc_123", "toc": [{"section_id": "sec_1", "heading_path": ["Business"]}]},
-            )
-
-            response = call_tool(
-                api_client,
-                {"name": "get_document_toc", "arguments": {"document_id": "doc_123"}},
-                cache_manager_getter=lambda: cache_manager,
-            )
-
-        payload = json.loads(response["content"][0]["text"])
-        self.assertEqual(api_client.calls, [])
-        self.assertTrue(payload["cache_hit"])
-        self.assertEqual(payload["toc"][0]["heading_path"], ["Business"])
-
-    def test_get_document_toc_applies_outline_options_to_cache_hit(self) -> None:
+    def test_get_document_toc_serves_cached_toc_without_api_call(self) -> None:
         api_client = FakeApiClient()
         with TemporaryDirectory() as temp_dir:
             cache_manager = CacheManager(Path(temp_dir))
@@ -198,14 +178,12 @@ class ToolHandlerTests(unittest.TestCase):
                             "section_title": "Risk",
                             "heading_path": ["Business", "Risk"],
                             "character_count": 100,
-                            "page_number": 2,
                         },
                         {
                             "section_id": "sec_2",
-                            "section_title": "Governance",
-                            "heading_path": ["Governance"],
+                            "section_title": "Board",
+                            "heading_path": ["Governance", "Board"],
                             "character_count": 50,
-                            "page_number": 8,
                         },
                     ],
                 },
@@ -213,22 +191,13 @@ class ToolHandlerTests(unittest.TestCase):
 
             response = call_tool(
                 api_client,
-                {
-                    "name": "get_document_toc",
-                    "arguments": {
-                        "document_id": "doc_123",
-                        "path_prefix": ["Business"],
-                        "max_depth": 2,
-                        "include_sections": True,
-                    },
-                },
+                {"name": "get_document_toc", "arguments": {"document_id": "doc_123", "path_prefix": ["Business"]}},
                 cache_manager_getter=lambda: cache_manager,
             )
 
         payload = json.loads(response["content"][0]["text"])
         self.assertEqual(api_client.calls, [])
-        self.assertEqual(payload["toc_mode"], "subtree")
-        self.assertEqual(payload["toc"][0]["children"][0]["sections"][0]["section_id"], "sec_1")
+        self.assertEqual(payload["toc"], "Business\n  Risk | sec_1 | 100")
 
     def test_get_document_content_stores_sections_and_returns_payload(self) -> None:
         api_client = FakeApiClient()

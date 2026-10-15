@@ -158,8 +158,8 @@ MCPは、候補・取得可否・取得単位の確認と、本文・画像・�
   "reference_url": "https://example.com/report.pdf",
   "next_action": {
     "status": "ready",
-    "recommended_tools": ["get_document_toc", "get_document_content"],
-    "argument_hints": {"document_id": "doc_123"}
+    "recommended_tools": ["get_document_content"],
+    "argument_hints": {"document_id": "doc_123", "allow_full_document": true}
   }
 }
 ```
@@ -170,7 +170,7 @@ MCPは、候補・取得可否・取得単位の確認と、本文・画像・�
 
 ### MCP が追加する field
 
-`next_action` は `content_status` に応じて次に使う tool や引数 hint を示す MCP helper field です。`content_status=ready` の場合は `get_document_toc` / `get_document_content`、`pending_release` の場合は待機、`external_only` の場合は外部参照確認へ誘導します。
+`next_action` は `content_status` に応じて次に使う tool や引数 hint を示す MCP helper field です。`content_status=ready` の場合、`character_count` が 20000 以下なら `allow_full_document=true` での `get_document_content`（1回で全文が返る）、それより大きければ `get_document_toc` / `get_document_content`、`pending_release` の場合は待機、`external_only` の場合は外部参照確認へ誘導します。
 
 ### 落とす field
 
@@ -178,13 +178,17 @@ MCPは、候補・取得可否・取得単位の確認と、本文・画像・�
 
 ## `get_document_toc`
 
-文書本文を取得するための section selector を取得します。
-
-返り値の `toc[].section_id` を `get_document_content` の `section_ids` に渡します。
-
-MCP は TOC payload を `document_id` 単位で cache します。`cache_hit` は、この tool call が API を呼ばずローカル cache から返したかどうかを表します。
+文書本文を取得するための section selector を、字下げしたテキストで返します。
 
 対応エンドポイント: `GET /v1/documents/{document_id}/toc`
+
+MCP は TOC payload を `document_id` 単位で cache します。
+
+### パラメータ差分
+
+| MCP | API | 理由 |
+| --- | --- | --- |
+| `path_prefix` | なし | MCP 側で、指定した見出しの下だけに絞るため。上位の見出しから順に、TOC に表示されたとおりの文字列を並べます。 |
 
 ### 返り値
 
@@ -193,61 +197,34 @@ MCP は TOC payload を `document_id` 単位で cache します。`cache_hit` �
   "ok": true,
   "document_id": "doc_123",
   "toc_mode": "sections",
-  "path_prefix": [],
-  "max_depth": 2,
-  "include_sections": true,
-  "selection_policy": {
-    "mode": "auto",
-    "reason": "toc_is_small",
-    "max_direct_toc_sections": 50,
-    "selected_toc_entry_count": 1
-  },
-  "toc": [
-    {
-      "section_id": "sec_1",
-      "section_title": "Risk Factors",
-      "heading_path": ["Business", "Risk Factors"],
-      "character_count": 1200,
-      "page_number": 5
-    }
-  ],
-  "resource_uri": "momonga://documents/doc_123/toc",
-  "cache_hit": false
+  "section_count": 3,
+  "toc": "第一部 【企業情報】\n  第２ 【事業の状況】\n    １ 【経営方針、経営環境及び対処すべき課題等】 | sec_1 | 1200\n    ３ 【事業等のリスク】 | sec_2 | 5269\n  第５ 【経理の状況】 | sec_3 | 800 | p12"
 }
 ```
+
+`toc` は1行に1見出しで、階層1段ごとに2文字下げます。取得できる section の行は ` | section_id | character_count` で終わり、ページが分かる場合は ` | p<page>` が続きます。`section_id` を `get_document_content` の `section_ids` に渡します。
+
+API の TOC は section ごとに `heading_path` 全体を繰り返しますが、MCP では各見出しを1回だけ書きます。中央値の有価証券報告書（81 section）で、JSON のまま返す場合の約 10,800 トークンが約 3,000 トークンになります。この形からは元の `heading_path`、`section_id`、`character_count` を復元できます。
+
+全 section を並べると 20000 文字を超える場合は `toc_mode=outline` になり、上位2段の見出しだけを `見出し | section数 | 文字数` の形で返します。`path_prefix` を付けて呼び直すと、その見出しの下の section を並べます。
 
 ### 残す field
 
 | Field | 理由 |
 | --- | --- |
 | `document_id` | 後続 tool 呼び出しの対象文書を示す。 |
-| `toc_mode` | `sections` / `outline` / `subtree` の判別。section selector を直接使えるか、subtree取得が必要かを判断するため。 |
-| `path_prefix` | focused subtree 取得時に指定された heading path。 |
-| `max_depth` | outline 展開深度。 |
-| `include_sections` | section selector を含める指定だったかの確認。トップレベル呼び出しで `include_sections=true` の場合、`toc_mode` は `sections` になります。 |
-| `selection_policy` | TOCを直接返すかoutline化したかの判断理由と件数。 |
+| `toc_mode` | `sections`（section を全部並べた）か `outline`（見出しだけ）か。 |
+| `section_count` | 対象範囲の section 数。 |
 | `toc` | 取得する section を選ぶための目次。 |
-| `toc[].section_id` | `toc_mode=sections` の場合に返ります。`get_document_content.section_ids` に渡す必須 selector。 |
-| `toc[].section_title` | `toc_mode=sections` の場合に返ります。section 選択用の短い表示名。 |
-| `toc[].heading_path` | `toc_mode=sections` の場合は section の階層文脈、`outline` / `subtree` の場合は outline node の heading path。 |
-| `toc[].character_count` | `toc_mode=sections` の場合に返ります。大きすぎる section の取得を避けるための目安。 |
-| `toc[].page_number` | `toc_mode=sections` の場合に返ります。図表・画像確認が必要な場合に page image へ進むための目安。 |
-| `toc[].heading_title` | `toc_mode=outline` / `subtree` の場合に返ります。outline node の表示名。 |
-| `toc[].section_count` | `toc_mode=outline` / `subtree` の場合に返ります。node 配下の section 数。 |
-| `toc[].total_character_count` | `toc_mode=outline` / `subtree` の場合に返ります。node 配下の概算文字数。 |
-| `toc[].page_range` | `toc_mode=outline` / `subtree` の場合に返ります。node 配下のページ範囲。 |
-| `toc[].has_children` | `toc_mode=outline` / `subtree` の場合に返ります。さらに下位 heading があるかどうか。 |
-| `toc[].children` | `toc_mode=outline` / `subtree` で depth 内に下位 node がある場合だけ返ります。 |
-| `toc[].sections` | `toc_mode=subtree` かつ `include_sections=true` の場合だけ返ります。中身は section selector entry です。トップレベル呼び出しでは `include_sections=true` により `toc_mode=sections` になるため、`toc_mode=outline` と `include_sections=true` の組み合わせでは返りません。 |
-| `next_action_template` | `toc_mode=outline` の場合だけ返ります。選んだ `heading_path` で再度 `get_document_toc` を呼ぶための hint。 |
-| `resource_uri` | cache 済み TOC を指すローカル resource ID。 |
-| `cache_hit` | API call を skip したかどうか。 |
+| `path_prefix` | 指定した場合だけ返ります。 |
 
 ### 落とす field
 
 API response には document metadata も含まれますが、`get_document_toc` は section selector 取得用の tool なので、MCP response では落とします。
 
 `title`, `document_family`, `document_type`, `issuers`, `tags`, `published_at`, `timeline_at`, `timeline_precision`, `timeline_basis`, `first_observed_at`, `content_available`, `content_status`, `image_available`, `page_count`, `page_image_count`, `reference_url`
+
+TOC entry の `section_title` は `heading_path` の最後の要素と同じなので、別には書きません（異なる場合は section の行にだけ `section_title` を使います）。
 
 ## `list_document_page_images`
 
@@ -715,7 +692,8 @@ document metadata 系は `list_documents` と同じです。
       "body": "Company announced...",
       "observed_at": "2026-05-01T00:00:00Z",
       "related_issuers": [{"security_code": "8058", "name": "三菱商事株式会社", "link_basis": "explicit_code"}],
-      "references": []
+      "references": [],
+      "score": 8.4
     }
   ]
 }
@@ -723,11 +701,11 @@ document metadata 系は `list_documents` と同じです。
 
 ### 残す field
 
-`list_news` と同じです。
+`list_news` と同じ field に加えて、`score` を返します。関連の薄い候補をスコアで見分けるためです。
 
 ### 落とす field
 
-`statement`（`list_news` と同じ理由）と `score`。`score` は検索結果の候補確認後に根拠へ戻るためには直接不要です。
+`statement`（`list_news` と同じ理由）。
 
 ## 共通 error response
 
