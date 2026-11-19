@@ -1,5 +1,7 @@
 # Momonga Search MCP
 
+**このリポジトリは更新を停止しました。** モモンガサーチは、個人向けプランでも AI アプリからリモート MCP（[`https://mcp.momongasearch.com/mcp`](https://mcp.momongasearch.com/mcp)）に接続して使えるようになりました。API キーの設定は不要です。接続の手順は [https://momongasearch.com/docs/ai-apps](https://momongasearch.com/docs/ai-apps) をご覧ください。
+
 Momonga Search MCP は、企業公表資料・経済ニュースを LLM/Agent が安全に検索・取得・根拠提示するための MCP server です。汎用Web検索MCPではありません。
 
 > 初心者向けのセットアップ記事を用意しています。`uv` のインストールから Claude Desktop / Claude Code / Codex への登録まで手順を追って解説しているので、まずはこちらを参照してください: [【初心者向け】Momonga Search MCP を Claude / Codex で使えるようにしよう！](https://zenn.dev/ray000/articles/momonga-search-mcp-setup)
